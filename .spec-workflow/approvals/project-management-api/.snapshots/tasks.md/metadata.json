@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/project-management-api/tasks.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-09-24T18:26:25.901Z",
+      "trigger": "initial",
+      "approvalId": "approval_1758738385897_68jwgtmjl",
+      "approvalTitle": "项目管理API任务文档审批"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "approval_1758738368471_hget6b0fb",
+  "title": "GitLab集成API设计文档审批",
+  "filePath": ".spec-workflow/specs/gitlab-integration-api/design.md",
+  "type": "document",
+  "status": "approved",
+  "createdAt": "2025-09-24T18:26:08.471Z",
+  "category": "spec",
+  "categoryName": "gitlab-integration-api",
+  "response": "已批准",
+  "respondedAt": "2025-09-24T18:29:43.691Z"
+}

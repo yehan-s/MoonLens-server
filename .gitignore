@@ -1,6 +1,12 @@
 # 编译输出
 /dist
+/build
 /node_modules
+
+# MCP and AI service files
+.serena/
+.codex/
+.mcp.json
 
 # 日志
 logs
@@ -13,10 +19,12 @@ lerna-debug.log*
 
 # 操作系统文件
 .DS_Store
+Thumbs.db
 
 # 测试
 /coverage
 /.nyc_output
+/test-results
 
 # IDE
 .idea
@@ -38,10 +46,63 @@ lerna-debug.log*
 .env
 .env.local
 .env.*.local
+.env.development
+.env.production
+.env.test
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# Prisma
+/prisma/dev.db
+/prisma/migrations/**/migration.sql.backup
+
+# 缓存
+.cache
+.npm
+.eslintcache
+.next
 
 # 临时文件
 *.tmp
 *.temp
 .tmp
 .temp
-/generated/prisma
+
+# 上传文件
+/uploads
+/public/uploads
+
+# 文档生成
+/docs/generated
+
+# 备份文件
+*.backup
+*.bak
+
+# 本地配置
+config/local.json
+config/development.json
+
+# PM2
+ecosystem.config.js
+
+# Docker
+.dockerignore
+
+# 监控和日志
+/logs/*
+!logs/.gitkeep
+
+# SSL证书
+*.pem
+*.key
+*.cert
+
+# Redis dump
+dump.rdb
+
+# 规范检查报告
+/reports

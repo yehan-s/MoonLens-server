@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/project-management-api/design.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-09-24T18:26:03.460Z",
+      "trigger": "initial",
+      "approvalId": "approval_1758738363448_f6ufqd5o4",
+      "approvalTitle": "项目管理API设计文档审批"
+    }
+  ]
+}
