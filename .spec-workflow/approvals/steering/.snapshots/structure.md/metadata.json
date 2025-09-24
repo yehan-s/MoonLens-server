@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/steering/structure.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-09-24T17:10:00.061Z",
+      "trigger": "initial",
+      "approvalId": "approval_1758733800057_uue9nvztp",
+      "approvalTitle": "代码库结构文档 (structure.md) 审批"
+    }
+  ]
+}

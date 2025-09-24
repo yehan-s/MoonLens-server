@@ -1,0 +1,152 @@
+// Prisma Schema for MoonLens
+// 使用 MySQL 数据库
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户模型
+model User {
+  id                String    @id @default(uuid())
+  username          String    @unique
+  email             String    @unique
+  password          String
+  fullName          String?
+  avatar            String?
+  isActive          Boolean   @default(true)
+  gitlabUserId      String?
+  gitlabAccessToken String?   @db.Text
+  preferences       Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // 关联关系
+  projects Project[]
+  reviews  Review[]
+
+  @@map("users")
+}
+
+// 项目模型
+model Project {
+  id                String    @id @default(uuid())
+  name              String
+  description       String?   @db.Text
+  gitlabProjectId   String
+  gitlabProjectUrl  String
+  defaultBranch     String?
+  isActive          Boolean   @default(true)
+  reviewConfig      Json?     // 包含自动审查配置、AI模型选择等
+  webhookId         String?
+  webhookSecret     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // 关联关系
+  ownerId String
+  owner   User     @relation(fields: [ownerId], references: [id])
+  reviews Review[]
+
+  @@index([ownerId])
+  @@index([gitlabProjectId])
+  @@map("projects")
+}
+
+// 审查状态枚举
+enum ReviewStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+// 审查类型枚举
+enum ReviewType {
+  PUSH
+  MERGE_REQUEST
+  MANUAL
+}
+
+// 代码审查模型
+model Review {
+  id              String       @id @default(uuid())
+  type            ReviewType   @default(MANUAL)
+  status          ReviewStatus @default(PENDING)
+  commitHash      String?
+  branch          String?
+  mergeRequestId  String?
+  mergeRequestIid String?
+  filesReviewed   Json?        // 存储审查的文件详情
+  summary         Json?        // 存储审查摘要（问题数、质量分数等）
+  aiResponse      String?      @db.LongText // AI 返回的完整响应
+  processingTime  Int?         // 处理时间（毫秒）
+  error           String?      @db.Text
+  createdAt       DateTime     @default(now())
+  completedAt     DateTime?
+
+  // 关联关系
+  projectId    String
+  project      Project @relation(fields: [projectId], references: [id])
+  requestedById String?
+  requestedBy  User?   @relation(fields: [requestedById], references: [id])
+
+  @@index([projectId])
+  @@index([requestedById])
+  @@index([status])
+  @@index([createdAt])
+  @@map("reviews")
+}
+
+// Webhook 事件记录
+model WebhookEvent {
+  id        String   @id @default(uuid())
+  projectId String
+  eventType String
+  payload   Json
+  processed Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([processed])
+  @@map("webhook_events")
+}
+
+// AI 模型配置
+model AIConfig {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  provider    String   // openai, anthropic, azure 等
+  modelName   String   // gpt-4, claude-3 等
+  apiEndpoint String?
+  apiKey      String   @db.Text
+  config      Json?    // 额外配置（temperature、maxTokens 等）
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("ai_configs")
+}
+
+// 审查规则模型
+model ReviewRule {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  category    String   // security, performance, style, best-practice 等
+  severity    String   // critical, major, minor, info
+  pattern     String?  @db.Text // 规则模式或正则表达式
+  config      Json?    // 规则的额外配置
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+  @@map("review_rules")
+}
