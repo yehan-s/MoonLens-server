@@ -4,6 +4,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { BullModule } from '@nestjs/bull';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { GitlabModule } from './gitlab/gitlab.module';
@@ -39,7 +40,8 @@ const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? '6379', 10);
     }),
     
     // 功能模块
-    CommonModule, // 包含 PrismaService，必须先加载
+    PrismaModule, // 数据库服务模块
+    CommonModule, // 通用功能模块
     AuthModule,
     UsersModule,
     GitlabModule,

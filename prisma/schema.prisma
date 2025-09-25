@@ -10,25 +10,48 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 用户角色枚举
+enum UserRole {
+  ADMIN
+  USER
+  GUEST
+}
+
 // 用户模型
 model User {
   id                String    @id @default(uuid())
   username          String    @unique
   email             String    @unique
-  password          String
+  password          String   // 存储 bcrypt 哈希后的密码
+  salt              String?   // 可选的额外盐值（bcrypt 已经包含盐）
   fullName          String?
   avatar            String?
+  role              UserRole  @default(USER)
   isActive          Boolean   @default(true)
-  gitlabUserId      String?
+  isLocked          Boolean   @default(false) // 账户锁定状态
+  loginAttempts     Int       @default(0)      // 失败登录尝试次数
+  lockedUntil       DateTime? // 账户锁定直到某个时间
+  lastLoginAt       DateTime? // 最后登录时间
+  lastLoginIp       String?   // 最后登录 IP
+  emailVerified     Boolean   @default(false) // 邮箱验证状态
+  emailVerifiedAt   DateTime? // 邮箱验证时间
+  gitlabUserId      String?   @unique
   gitlabAccessToken String?   @db.Text
+  gitlabRefreshToken String?  @db.Text // GitLab OAuth 刷新令牌
   preferences       Json?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   // 关联关系
-  projects Project[]
-  reviews  Review[]
+  projects      Project[]
+  reviews       Review[]
+  loginHistory  LoginHistory[]
+  refreshTokens RefreshToken[]
+  sessions      Session[]
 
+  @@index([email])
+  @@index([gitlabUserId])
+  @@index([isActive])
   @@map("users")
 }
 
@@ -149,4 +172,114 @@ model ReviewRule {
   @@index([category])
   @@index([isActive])
   @@map("review_rules")
+}
+
+// Token 黑名单
+model TokenBlacklist {
+  id        String   @id @default(uuid())
+  jti       String   @unique // JWT ID
+  token     String   @db.Text
+  userId    String
+  reason    String?  // 撤销原因（logout, security, admin 等）
+  expiresAt DateTime // Token 原本的过期时间
+  createdAt DateTime @default(now())
+
+  @@index([jti])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("token_blacklist")
+}
+
+// 登录历史记录
+model LoginHistory {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress   String
+  userAgent   String   @db.Text
+  deviceType  String?  // desktop, mobile, tablet
+  deviceId    String?  // 设备指纹
+  browser     String?
+  os          String?
+  location    String?  // 地理位置（基于 IP）
+  success     Boolean
+  failReason  String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([success])
+  @@map("login_history")
+}
+
+// 刷新令牌
+model RefreshToken {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token       String   @db.Text
+  deviceId    String?  // 关联设备
+  isActive    Boolean  @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// 会话管理
+model Session {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId   String   @unique
+  deviceId    String?
+  deviceName  String?  // "Chrome on MacOS"
+  ipAddress   String
+  userAgent   String   @db.Text
+  location    String?
+  isActive    Boolean  @default(true)
+  lastActivity DateTime @default(now())
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([isActive])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// 密码重置令牌
+model PasswordReset {
+  id        String   @id @default(uuid())
+  userId    String
+  email     String
+  token     String   @unique
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([email])
+  @@index([expiresAt])
+  @@map("password_resets")
+}
+
+// 邮箱验证令牌
+model EmailVerification {
+  id        String   @id @default(uuid())
+  userId    String
+  email     String
+  token     String   @unique
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([email])
+  @@index([expiresAt])
+  @@map("email_verifications")
 }

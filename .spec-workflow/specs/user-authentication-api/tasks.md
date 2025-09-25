@@ -4,7 +4,7 @@
 
 ## 数据库与实体管理
 
-- [ ] 1. 设计并创建User实体模型
+- [x] 1. 设计并创建User实体模型
   - File: src/user/entities/user.entity.ts
   - 创建用户实体，包含基本字段、认证字段、状态管理字段，设置数据库索引和约束
   - Purpose: 建立用户数据的核心结构，为认证系统提供数据基础
@@ -12,7 +12,7 @@
   - _Requirements: FR3.1, NFR1.1
   - _Prompt: You are a senior backend developer working on a NestJS application with Prisma ORM. Create the User entity with fields for authentication (email, password hash, salt), profile (username, avatar), OAuth integration (gitlab_id, gitlab_token), status management (is_active, is_locked, last_login_at), and timestamps. Include proper validations, indexes, and database constraints. Set up proper field mappings and ensure security best practices for sensitive data. When implementing this task, mark it as completed by changing the checkbox from [ ] to [x] and add implementation notes in the commit message.
 
-- [ ] 2. 创建Prisma数据库Schema配置
+- [x] 2. 创建Prisma数据库Schema配置
   - File: prisma/schema.prisma
   - 定义完整的数据库Schema，包含User、TokenBlacklist、LoginHistory等表结构
   - Purpose: 建立数据库结构基础，确保数据一致性和性能
@@ -20,7 +20,7 @@
   - _Requirements: NFR2.4, NFR1.1
   - _Prompt: You are a database architect working on a user authentication system using Prisma and MySQL. Design a comprehensive schema including User table (with proper indexes on email, gitlab_id), TokenBlacklist table for JWT token management, LoginHistory table for audit trails, and any relation tables needed. Include proper field types, constraints, indexes for performance, and consider data privacy requirements. Set up proper database relationships and cascading rules. When implementing this task, mark it as completed by changing the checkbox from [ ] to [x] and add implementation notes in the commit message.
 
-- [ ] 3. 实现数据库迁移和种子数据
+- [x] 3. 实现数据库迁移和种子数据
   - File: prisma/migrations/*, prisma/seed.ts
   - 创建数据库迁移文件并实现种子数据脚本，包含默认管理员账户
   - Purpose: 建立数据库版本控制和初始数据设置
@@ -30,7 +30,7 @@
 
 ## 核心认证服务
 
-- [ ] 4. 实现密码加密服务
+- [x] 4. 实现密码加密服务
   - File: src/auth/services/password.service.ts
   - 创建密码哈希、验证、强度检查服务，使用bcrypt进行加密
   - Purpose: 提供安全的密码处理功能，保护用户密码安全
@@ -38,7 +38,7 @@
   - _Requirements: NFR1.1, FR1.1
   - _Prompt: You are a security-focused backend developer implementing password security for a NestJS application. Create a PasswordService with methods for hashing passwords using bcrypt (salt rounds: 10), verifying passwords, and validating password strength (minimum 8 characters, must contain uppercase, lowercase, and numbers). Include proper error handling, logging for security events, and ensure all operations are async. Add comprehensive unit tests covering edge cases. When implementing this task, mark it as completed by changing the checkbox from [ ] to [x] and add implementation notes in the commit message.
 
-- [ ] 5. 开发JWT Token管理服务
+- [x] 5. 开发JWT Token管理服务
   - File: src/auth/services/jwt.service.ts
   - 实现JWT Token的生成、验证、刷新和黑名单管理功能
   - Purpose: 提供完整的JWT Token生命周期管理
@@ -46,7 +46,7 @@
   - _Requirements: FR1.1, FR1.4, FR4.1
   - _Prompt: You are a backend security specialist developing JWT token management for a NestJS application. Create a JwtService that handles token generation with user claims, token validation with proper error handling, automatic token refresh mechanism (when < 1 hour remaining), and token blacklist management. Include methods for token revocation, batch token invalidation, and token payload extraction. Ensure proper security headers and implement rate limiting for token operations. When implementing this task, mark it as completed by changing the checkbox from [ ] to [x] and add implementation notes in the commit message.
 
-- [ ] 6. 创建认证Guards和策略
+- [x] 6. 创建认证Guards和策略
   - File: src/auth/guards/jwt-auth.guard.ts, src/auth/strategies/jwt.strategy.ts
   - 实现JWT认证Guard和Passport策略，提供路由级别的认证保护
   - Purpose: 建立路由级别的认证和授权控制机制
@@ -56,7 +56,7 @@
 
 ## 用户管理功能
 
-- [ ] 7. 实现用户注册功能
+- [x] 7. 实现用户注册功能
   - File: src/auth/controllers/auth.controller.ts, src/auth/services/auth.service.ts
   - 开发用户注册接口，包含邮箱验证、密码强度检查、用户创建
   - Purpose: 提供用户注册功能，建立新用户账户
@@ -64,7 +64,7 @@
   - _Requirements: FR3.1, AC1
   - _Prompt: You are a full-stack developer implementing user registration for a NestJS authentication system. Create registration endpoints with comprehensive validation (email format, uniqueness check, password strength), user creation with proper password hashing, automatic login after successful registration, and proper error responses. Include rate limiting for registration attempts, input sanitization, and email verification workflow. Implement proper DTOs for request/response and comprehensive logging. When implementing this task, mark it as completed by changing the checkbox from [ ] to [x] and add implementation notes in the commit message.
 
-- [ ] 8. 开发用户登录功能
+- [x] 8. 开发用户登录功能
   - File: src/auth/controllers/auth.controller.ts, src/auth/services/auth.service.ts
   - 创建用户登录接口，包含凭据验证、Token生成、登录历史记录
   - Purpose: 提供安全的用户登录功能和会话管理
