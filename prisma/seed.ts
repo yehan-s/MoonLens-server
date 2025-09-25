@@ -214,6 +214,11 @@ async function main() {
   console.log('📝 默认账户信息：');
   console.log('管理员账户: admin@moonlens.com / Admin@123456');
   console.log('测试账户: test@moonlens.com / Test@123456');
+  
+  } catch (error) {
+    console.error('❌ 种子数据初始化失败：', error);
+    throw error;
+  }
 }
 
 main()
