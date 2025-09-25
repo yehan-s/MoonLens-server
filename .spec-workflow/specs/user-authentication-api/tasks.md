@@ -72,7 +72,7 @@
   - _Requirements: FR1.2, AC2, NFR2.1
   - _Prompt: You are a backend developer creating secure login functionality for NestJS. Implement login endpoints with credential validation, JWT token generation, login history tracking, and account lockout after 5 failed attempts (15-minute lockout). Include login rate limiting, IP tracking, device fingerprinting, and comprehensive audit logging. Create proper DTOs and ensure response includes user profile and token information. Add remember-me functionality and proper session management. When implementing this task, mark it as completed by changing the checkbox from [ ] to [x] and add implementation notes in the commit message.
 
-- [ ] 9. 实现用户资料管理功能
+- [x] 9. 实现用户资料管理功能
   - File: src/user/controllers/user.controller.ts, src/user/services/user.service.ts
   - 开发用户资料查看、更新、头像上传功能
   - Purpose: 提供完整的用户资料管理功能
@@ -108,7 +108,7 @@
 
 ## 会话和Token管理
 
-- [ ] 13. 实现Token刷新机制
+- [-] 13. 实现Token刷新机制
   - File: src/auth/services/token-refresh.service.ts
   - 开发自动Token刷新功能，包含刷新策略和Token轮换
   - Purpose: 提供无缝的Token刷新体验，保持用户会话
@@ -116,7 +116,7 @@
   - _Requirements: FR1.4, FR4.2
   - _Prompt: You are a session management expert implementing token refresh for NestJS. Create automatic token refresh service that detects tokens expiring within 1 hour, generates new tokens with proper claims, maintains refresh token rotation, and handles concurrent refresh requests. Include Redis-based refresh token storage, proper cleanup of expired tokens, and rate limiting for refresh operations. Implement graceful degradation when refresh fails. When implementing this task, mark it as completed by changing the checkbox from [ ] to [x] and add implementation notes in the commit message.
 
-- [ ] 14. 开发Token黑名单管理
+- [-] 14. 开发Token黑名单管理
   - File: src/auth/services/token-blacklist.service.ts
   - 实现Token撤销、黑名单检查、批量Token失效功能
   - Purpose: 提供Token安全控制和会话管理
