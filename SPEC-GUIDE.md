@@ -3,11 +3,11 @@
 ## 项目概述
 
 基于 **Architecture-Overview.md**，本项目是一个面向 GitLab 的 AI 代码审查 SaaS 平台，采用如下架构：
-- **后端**: NestJS + TypeORM + BullMQ
+- **后端**: NestJS + Prisma + BullMQ
 - **AI 服务**: Python FastAPI
 - **前端**: Vue 3 + Vite
 - **队列**: Redis/RabbitMQ
-- **数据库**: PostgreSQL
+- **数据库**: MySQL
 
 ## Spec 创建路线图
 
@@ -189,7 +189,7 @@ PORT=8080
 NODE_ENV=development
 GITLAB_BASE_URL=https://gitlab.com
 GITLAB_WEBHOOK_SECRET=change-me
-DB_URL=postgres://glai:glai@postgres:5432/glai
+DB_URL=mysql://glai:glai@mysql:3306/glai
 REDIS_URL=redis://redis:6379
 AI_SERVICE_URL=http://ai-service:8081
 

@@ -194,7 +194,7 @@ export class User {
   @ApiProperty({
     description: '用户偏好设置',
     required: false,
-    type: 'object',
+    
   })
   @IsOptional()
   @IsJSON()

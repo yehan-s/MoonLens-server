@@ -2,12 +2,16 @@ import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
   constructor() {
     super({
-      log: process.env.NODE_ENV === 'development' 
-        ? ['query', 'info', 'warn', 'error']
-        : ['error'],
+      log:
+        process.env.NODE_ENV === 'development'
+          ? ['query', 'info', 'warn', 'error']
+          : ['error'],
     });
   }
 
@@ -21,7 +25,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         return;
       } catch (err) {
         if (i === maxRetries) {
-          console.warn(`Prisma 连接失败（已重试 ${maxRetries} 次），将延后至首次查询时再连接。`, err);
+          console.warn(
+            `Prisma 连接失败（已重试 ${maxRetries} 次），将延后至首次查询时再连接。`,
+            err,
+          );
           return; // 不抛出，让应用继续启动，后续按需连接
         }
         await new Promise((r) => setTimeout(r, delayMs));
@@ -39,8 +46,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       throw new Error('cleanDatabase 不允许在生产环境中执行');
     }
 
-    const models = (Reflect.ownKeys(this)
-      .filter((key) => typeof key === 'string' && key[0] !== '_' && key[0] !== '$') as string[]);
+    const models = Reflect.ownKeys(this).filter(
+      (key) => typeof key === 'string' && key[0] !== '_' && key[0] !== '$',
+    ) as string[];
 
     for (const model of models) {
       try {
@@ -55,7 +63,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   // 事务处理辅助方法
-  async executeTransaction<T>(fn: (prisma: PrismaClient) => Promise<T>): Promise<T> {
+  async executeTransaction<T>(
+    fn: (prisma: PrismaClient) => Promise<T>,
+  ): Promise<T> {
     return this.$transaction(fn);
   }
 }

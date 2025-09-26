@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  analysis-worker:
+    image: moonlens/worker:latest
+    build:
+      context: ../
+      dockerfile: docker/worker.Dockerfile
+    
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true      # 禁止提权
+      - apparmor:docker-default      # AppArmor 策略
+      - seccomp:unconfined           # Seccomp 策略
+    
+    # 文件系统
+    read_only: true                  # 只读根文件系统
+    tmpfs:                          # 内存文件系统
+      - /tmp:size=1G,mode=1770      # 限制 1GB
+      - /run:size=100M,mode=1770    # 运行时目录
+    
+    # 网络隔离
+    networks:
+      - isolated_network
+    
+    # 用户权限
+    user: "1000:1000"               # 非 root 用户
+    
+    # 环境变量
+    environment:
+      - NODE_ENV=production
+      - MAX_ANALYSIS_TIME=600000    # 10 分钟超时
+      - MEMORY_LIMIT=2048           # 2GB 限制
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    
+    # 禁用功能
+    cap_drop:
+      - ALL                         # 移除所有权限
+    cap_add:
+      - CHOWN                       # 仅允许文件所有权
+      - SETUID                      # 用户切换
+      - SETGID                      # 组切换
+    
+    # 禁止设备访问
+    devices: []
+    
+    # 禁止挂载
+    volumes: []
+    
+    # 依赖服务
+    depends_on:
+      - redis
+    
+    # 重启策略
+    restart: on-failure
+    
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis 服务（已存在的配置）
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - isolated_network
+    ports:
+      - "6379:6379"
+    restart: always
+
+# 网络配置
+networks:
+  isolated_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+    driver_opts:
+      com.docker.network.bridge.name: br-isolated
+
+# 数据卷（仅 Redis 需要）
+volumes:
+  redis_data:

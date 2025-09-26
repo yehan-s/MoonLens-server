@@ -12,10 +12,10 @@
 
 **关键依赖**:
 - `@nestjs/platform-express`: Web 框架
-- `@nestjs/typeorm`: 数据库 ORM
-- `@nestjs/bull`: 队列处理
+- `@nestjs/bull`: 队列处理（BullMQ）
 - `@nestjs/config`: 配置管理
 - `@nestjs/jwt`: 认证授权
+- `prisma` / `@prisma/client`: ORM 与数据库访问（MySQL）
 
 ### AI 服务: Python FastAPI
 **选择理由**:
@@ -33,13 +33,13 @@
 - `anthropic`: Claude SDK
 - `tenacity`: 重试机制
 
-### 数据库: PostgreSQL
+### 数据库: MySQL
 **选择理由**:
-- **ACID 合规**: 保证数据一致性和可靠性
-- **JSON 支持**: 灵活存储非结构化数据（如 AI 响应）
-- **性能优秀**: 复杂查询性能出色，支持索引优化
-- **扩展性强**: 支持分区、复制、分片
-- **GitLab 兼容**: GitLab 本身使用 PostgreSQL
+- **ACID 合规**: InnoDB 引擎保障事务一致性与可靠性
+- **JSON 类型**: 原生 JSON 列与函数，配合生成列/函数索引实现查询优化
+- **性能与稳定性**: 读写性能成熟、生态完善（主从复制、读写分离、分片方案丰富）
+- **运维与成本**: 云厂商托管方案广泛，TCO 可控
+- **与当前代码一致**: 本仓库使用 Prisma + MySQL，迁移与团队认知成本最低
 
 ### 队列: Redis + BullMQ
 **选择理由**:
@@ -113,7 +113,7 @@ graph LR
     AI -->|LLM API| LLM[LLM Providers]
     AI -->|Result| BE
     BE -->|Comment API| GL
-    BE -->|Store| PG[(PostgreSQL)]
+    BE -->|Store| MY[(MySQL)]
     FE[Frontend] -->|REST| BE
 ```
 
@@ -166,7 +166,7 @@ class AnthropicProvider(LLMProvider):
 ```
 L1: 应用内存缓存 (LRU)
 L2: Redis 缓存
-L3: PostgreSQL 
+L3: MySQL（持久层作为最终一致的数据源）
 ```
 **缓存内容**:
 - GitLab 项目元数据 (TTL: 1h)
@@ -211,13 +211,13 @@ L3: PostgreSQL
 Backend Pods: 2-10 (基于 CPU/Memory)
 AI Service Pods: 1-5 (基于队列长度)
 Redis: Master-Slave 复制
-PostgreSQL: 读写分离
+MySQL: 读写分离
 ```
 
 ### 垂直扩展
 - **Backend**: 4 Core / 8GB RAM (推荐)
 - **AI Service**: 2 Core / 4GB RAM
-- **PostgreSQL**: 8 Core / 16GB RAM
+- **MySQL**: 8 Core / 16GB RAM（视数据量与并发而定）
 - **Redis**: 2 Core / 4GB RAM
 
 ### 插件化架构
@@ -270,7 +270,7 @@ class SecurityPlugin implements IReviewPlugin {
 ## 技术债务管理
 
 ### 当前技术债务
-1. **单体数据库**: 所有数据在一个 PostgreSQL 实例
+1. **单体数据库**: 所有数据在一个 MySQL 单实例，尚未做读写分离/分库分表
 2. **同步 GitLab API**: 部分调用仍是同步的
 3. **简单重试**: 缺少智能退避算法
 4. **基础监控**: 缺少业务级监控
@@ -289,7 +289,7 @@ class SecurityPlugin implements IReviewPlugin {
 - **密钥**: 加密备份到独立存储
 
 ### 故障转移
-- **主备切换**: PostgreSQL 流复制
+- **主备切换**: MySQL 主从/半同步/GTID 复制（或使用云厂商高可用方案）
 - **服务降级**: 关闭非核心功能
 - **限流**: 优先保证付费用户
 
