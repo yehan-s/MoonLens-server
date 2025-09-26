@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { 
-  ConflictException, 
-  UnauthorizedException, 
+import {
+  ConflictException,
+  UnauthorizedException,
   BadRequestException,
-  ForbiddenException 
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -99,25 +99,27 @@ describe('AuthService', () => {
       (prismaService.user.findUnique as jest.Mock)
         .mockResolvedValueOnce(null) // Email check
         .mockResolvedValueOnce(null); // Username check
-      
+
       (passwordService.validatePasswordStrength as jest.Mock).mockReturnValue({
         isValid: true,
         errors: [],
       });
-      
-      (passwordService.hashPassword as jest.Mock).mockResolvedValue('hashedPassword');
-      
+
+      (passwordService.hashPassword as jest.Mock).mockResolvedValue(
+        'hashedPassword',
+      );
+
       (prismaService.user.create as jest.Mock).mockResolvedValue({
         ...mockUser,
         email: registerDto.email,
         username: registerDto.username,
       });
-      
+
       (jwtTokenService.generateAccessToken as jest.Mock).mockResolvedValue({
         token: 'access-token',
         expiresIn: 3600,
       });
-      
+
       (jwtTokenService.generateRefreshToken as jest.Mock).mockResolvedValue({
         token: 'refresh-token',
         expiresIn: 604800,
@@ -128,11 +130,15 @@ describe('AuthService', () => {
       expect(result).toHaveProperty('user');
       expect(result).toHaveProperty('accessToken', 'access-token');
       expect(result).toHaveProperty('refreshToken', 'refresh-token');
-      expect(passwordService.hashPassword).toHaveBeenCalledWith(registerDto.password);
+      expect(passwordService.hashPassword).toHaveBeenCalledWith(
+        registerDto.password,
+      );
     });
 
     it('应该拒绝已存在的邮箱', async () => {
-      (prismaService.user.findUnique as jest.Mock).mockResolvedValueOnce(mockUser);
+      (prismaService.user.findUnique as jest.Mock).mockResolvedValueOnce(
+        mockUser,
+      );
 
       await expect(service.register(registerDto)).rejects.toThrow(
         new ConflictException('该邮箱已被注册'),
@@ -153,13 +159,15 @@ describe('AuthService', () => {
       (prismaService.user.findUnique as jest.Mock)
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null);
-      
+
       (passwordService.validatePasswordStrength as jest.Mock).mockReturnValue({
         isValid: false,
         errors: ['密码太弱'],
       });
 
-      await expect(service.register(registerDto)).rejects.toThrow(BadRequestException);
+      await expect(service.register(registerDto)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -172,15 +180,15 @@ describe('AuthService', () => {
 
     it('应该成功登录', async () => {
       jest.spyOn(service, 'validateUser').mockResolvedValue(mockUser as any);
-      
+
       (prismaService.loginHistory.create as jest.Mock).mockResolvedValue({});
       (prismaService.user.update as jest.Mock).mockResolvedValue(mockUser);
-      
+
       (jwtTokenService.generateAccessToken as jest.Mock).mockResolvedValue({
         token: 'access-token',
         expiresIn: 3600,
       });
-      
+
       (jwtTokenService.generateRefreshToken as jest.Mock).mockResolvedValue({
         token: 'refresh-token',
         expiresIn: 604800,
@@ -206,9 +214,9 @@ describe('AuthService', () => {
       (prismaService.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
       (prismaService.loginHistory.create as jest.Mock).mockResolvedValue({});
 
-      await expect(service.login(loginDto, '127.0.0.1', 'UserAgent')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.login(loginDto, '127.0.0.1', 'UserAgent'),
+      ).rejects.toThrow(UnauthorizedException);
 
       expect(prismaService.loginHistory.create).toHaveBeenCalledWith({
         data: {
@@ -230,9 +238,9 @@ describe('AuthService', () => {
 
       jest.spyOn(service, 'validateUser').mockResolvedValue(lockedUser as any);
 
-      await expect(service.login(loginDto, '127.0.0.1', 'UserAgent')).rejects.toThrow(
-        new ForbiddenException('账户已被锁定，请稍后再试'),
-      );
+      await expect(
+        service.login(loginDto, '127.0.0.1', 'UserAgent'),
+      ).rejects.toThrow(new ForbiddenException('账户已被锁定，请稍后再试'));
     });
 
     it('应该自动解锁过期的锁定', async () => {
@@ -242,7 +250,9 @@ describe('AuthService', () => {
         lockedUntil: new Date(Date.now() - 1000), // 已过期
       };
 
-      jest.spyOn(service, 'validateUser').mockResolvedValue(expiredLockUser as any);
+      jest
+        .spyOn(service, 'validateUser')
+        .mockResolvedValue(expiredLockUser as any);
       (prismaService.user.update as jest.Mock).mockResolvedValue(mockUser);
       (prismaService.loginHistory.create as jest.Mock).mockResolvedValue({});
       (jwtTokenService.generateAccessToken as jest.Mock).mockResolvedValue({
@@ -273,7 +283,10 @@ describe('AuthService', () => {
       (prismaService.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
       (passwordService.verifyPassword as jest.Mock).mockResolvedValue(true);
 
-      const result = await service.validateUser('test@example.com', 'ValidPass123');
+      const result = await service.validateUser(
+        'test@example.com',
+        'ValidPass123',
+      );
 
       expect(result).toEqual(mockUser);
     });
@@ -281,7 +294,10 @@ describe('AuthService', () => {
     it('应该拒绝不存在的用户', async () => {
       (prismaService.user.findUnique as jest.Mock).mockResolvedValue(null);
 
-      const result = await service.validateUser('nonexistent@example.com', 'password');
+      const result = await service.validateUser(
+        'nonexistent@example.com',
+        'password',
+      );
 
       expect(result).toBeNull();
     });
@@ -291,7 +307,10 @@ describe('AuthService', () => {
       (passwordService.verifyPassword as jest.Mock).mockResolvedValue(false);
       (prismaService.user.update as jest.Mock).mockResolvedValue({});
 
-      const result = await service.validateUser('test@example.com', 'WrongPassword');
+      const result = await service.validateUser(
+        'test@example.com',
+        'WrongPassword',
+      );
 
       expect(result).toBeNull();
       expect(prismaService.user.update).toHaveBeenCalled();
@@ -303,7 +322,9 @@ describe('AuthService', () => {
         loginAttempts: 4,
       };
 
-      (prismaService.user.findUnique as jest.Mock).mockResolvedValue(userWith4Attempts);
+      (prismaService.user.findUnique as jest.Mock).mockResolvedValue(
+        userWith4Attempts,
+      );
       (passwordService.verifyPassword as jest.Mock).mockResolvedValue(false);
       (prismaService.user.update as jest.Mock).mockResolvedValue({});
 
@@ -325,7 +346,9 @@ describe('AuthService', () => {
         isActive: false,
       };
 
-      (prismaService.user.findUnique as jest.Mock).mockResolvedValue(inactiveUser);
+      (prismaService.user.findUnique as jest.Mock).mockResolvedValue(
+        inactiveUser,
+      );
       (passwordService.verifyPassword as jest.Mock).mockResolvedValue(true);
 
       await expect(
@@ -343,7 +366,9 @@ describe('AuthService', () => {
         expiresIn: 3600,
       };
 
-      (jwtTokenService.refreshAccessToken as jest.Mock).mockResolvedValue(expectedResult);
+      (jwtTokenService.refreshAccessToken as jest.Mock).mockResolvedValue(
+        expectedResult,
+      );
 
       const result = await service.refreshToken(refreshTokenDto);
 
@@ -357,40 +382,54 @@ describe('AuthService', () => {
   describe('登出', () => {
     it('应该撤销访问令牌', async () => {
       const accessToken = 'access-token';
-      
+
       (jwtTokenService.revokeToken as jest.Mock).mockResolvedValue(undefined);
 
       const result = await service.logout(accessToken);
 
       expect(result).toEqual({ message: '登出成功' });
-      expect(jwtTokenService.revokeToken).toHaveBeenCalledWith(accessToken, 'logout');
+      expect(jwtTokenService.revokeToken).toHaveBeenCalledWith(
+        accessToken,
+        'logout',
+      );
     });
 
     it('应该撤销访问和刷新令牌', async () => {
       const accessToken = 'access-token';
       const refreshToken = 'refresh-token';
-      
+
       (jwtTokenService.revokeToken as jest.Mock).mockResolvedValue(undefined);
 
       const result = await service.logout(accessToken, refreshToken);
 
       expect(result).toEqual({ message: '登出成功' });
       expect(jwtTokenService.revokeToken).toHaveBeenCalledTimes(2);
-      expect(jwtTokenService.revokeToken).toHaveBeenCalledWith(accessToken, 'logout');
-      expect(jwtTokenService.revokeToken).toHaveBeenCalledWith(refreshToken, 'logout');
+      expect(jwtTokenService.revokeToken).toHaveBeenCalledWith(
+        accessToken,
+        'logout',
+      );
+      expect(jwtTokenService.revokeToken).toHaveBeenCalledWith(
+        refreshToken,
+        'logout',
+      );
     });
   });
 
   describe('登出所有设备', () => {
     it('应该撤销用户的所有令牌', async () => {
       const userId = 'user-123';
-      
-      (jwtTokenService.revokeAllUserTokens as jest.Mock).mockResolvedValue(undefined);
+
+      (jwtTokenService.revokeAllUserTokens as jest.Mock).mockResolvedValue(
+        undefined,
+      );
 
       const result = await service.logoutAllDevices(userId);
 
       expect(result).toEqual({ message: '已从所有设备登出' });
-      expect(jwtTokenService.revokeAllUserTokens).toHaveBeenCalledWith(userId, 'logout_all');
+      expect(jwtTokenService.revokeAllUserTokens).toHaveBeenCalledWith(
+        userId,
+        'logout_all',
+      );
     });
   });
 
@@ -407,7 +446,9 @@ describe('AuthService', () => {
         },
       ];
 
-      (prismaService.loginHistory.findMany as jest.Mock).mockResolvedValue(mockHistory);
+      (prismaService.loginHistory.findMany as jest.Mock).mockResolvedValue(
+        mockHistory,
+      );
 
       const result = await service.getLoginHistory(userId);
 
@@ -450,7 +491,9 @@ describe('AuthService', () => {
         },
       ];
 
-      (prismaService.session.findMany as jest.Mock).mockResolvedValue(mockSessions);
+      (prismaService.session.findMany as jest.Mock).mockResolvedValue(
+        mockSessions,
+      );
 
       const result = await service.getActiveSessions(userId);
 
@@ -477,7 +520,9 @@ describe('AuthService', () => {
         isActive: true,
       };
 
-      (prismaService.session.findFirst as jest.Mock).mockResolvedValue(mockSession);
+      (prismaService.session.findFirst as jest.Mock).mockResolvedValue(
+        mockSession,
+      );
       (prismaService.session.update as jest.Mock).mockResolvedValue({});
 
       const result = await service.terminateSession(userId, sessionId);

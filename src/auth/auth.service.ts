@@ -1,9 +1,9 @@
-import { 
-  Injectable, 
-  UnauthorizedException, 
+import {
+  Injectable,
+  UnauthorizedException,
   ConflictException,
   BadRequestException,
-  ForbiddenException 
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PasswordService } from './services/password.service';
@@ -12,6 +12,9 @@ import { UserRole } from '@prisma/client';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { randomUUID } from 'crypto';
+import { encryptSecret, decryptSecret } from '../common/utils/crypto.util';
+import { TOTPService } from './services/totp.service';
 
 /**
  * 认证服务
@@ -23,6 +26,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly passwordService: PasswordService,
     private readonly jwtTokenService: JwtTokenService,
+    private readonly totpService: TOTPService,
   ) {}
 
   /**
@@ -48,7 +52,9 @@ export class AuthService {
     }
 
     // 验证密码强度
-    const passwordValidation = this.passwordService.validatePasswordStrength(dto.password);
+    const passwordValidation = this.passwordService.validatePasswordStrength(
+      dto.password,
+    );
     if (!passwordValidation.isValid) {
       throw new BadRequestException({
         message: '密码不符合要求',
@@ -57,7 +63,9 @@ export class AuthService {
     }
 
     // 哈希密码
-    const hashedPassword = await this.passwordService.hashPassword(dto.password);
+    const hashedPassword = await this.passwordService.hashPassword(
+      dto.password,
+    );
 
     // 创建用户
     const user = await this.prisma.user.create({
@@ -79,13 +87,15 @@ export class AuthService {
     });
 
     // 生成访问令牌和刷新令牌
-    const { token: accessToken, expiresIn } = await this.jwtTokenService.generateAccessToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-    });
+    const { token: accessToken, expiresIn } =
+      await this.jwtTokenService.generateAccessToken({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      });
 
-    const { token: refreshToken } = await this.jwtTokenService.generateRefreshToken(user.id);
+    const { token: refreshToken } =
+      await this.jwtTokenService.generateRefreshToken(user.id);
 
     return {
       user,
@@ -103,7 +113,13 @@ export class AuthService {
 
     if (!user) {
       // 记录失败的登录尝试
-      await this.recordLoginAttempt(dto.email, false, ipAddress, userAgent, '邮箱或密码错误');
+      await this.recordLoginAttempt(
+        dto.email,
+        false,
+        ipAddress,
+        userAgent,
+        '邮箱或密码错误',
+      );
       throw new UnauthorizedException('邮箱或密码错误');
     }
 
@@ -137,17 +153,38 @@ export class AuthService {
       },
     });
 
-    // 生成令牌
-    const { token: accessToken, expiresIn } = await this.jwtTokenService.generateAccessToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-    });
+    // 若启用 2FA，仅返回挑战令牌
+    if (user.twoFactorEnabled) {
+      const two = await this.jwtTokenService.generateTwoFactorToken(user.id);
+      return { need2fa: true, twoFactorToken: two.token, expiresIn: two.expiresIn };
+    }
 
-    const { token: refreshToken } = await this.jwtTokenService.generateRefreshToken(
-      user.id,
-      dto.deviceId,
-    );
+    // 生成令牌
+    const { token: accessToken, expiresIn } =
+      await this.jwtTokenService.generateAccessToken({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      });
+
+    const sessionId = randomUUID();
+    const { token: refreshToken } =
+      await this.jwtTokenService.generateRefreshToken(user.id, dto.deviceId);
+
+    // 记录会话
+    await this.prisma.session.create({
+      data: {
+        userId: user.id,
+        sessionId,
+        deviceId: dto.deviceId || null,
+        deviceName: userAgent || null,
+        ipAddress: ipAddress || 'unknown',
+        userAgent: userAgent || 'unknown',
+        isActive: true,
+        lastActivity: new Date(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
 
     return {
       user: {
@@ -160,6 +197,7 @@ export class AuthService {
       },
       accessToken,
       refreshToken,
+      sessionId,
       expiresIn,
     };
   }
@@ -236,6 +274,11 @@ export class AuthService {
    */
   async logoutAllDevices(userId: string) {
     await this.jwtTokenService.revokeAllUserTokens(userId, 'logout_all');
+    // 关闭所有会话
+    await this.prisma.session.updateMany({
+      where: { userId, isActive: true },
+      data: { isActive: false },
+    });
     return { message: '已从所有设备登出' };
   }
 
@@ -322,7 +365,7 @@ export class AuthService {
   async terminateSession(userId: string, sessionId: string) {
     const session = await this.prisma.session.findFirst({
       where: {
-        id: sessionId,
+        sessionId,
         userId,
       },
     });
@@ -331,11 +374,136 @@ export class AuthService {
       throw new BadRequestException('会话不存在');
     }
 
-    await this.prisma.session.update({
-      where: { id: sessionId },
+    await this.prisma.session.updateMany({
+      where: { sessionId, userId },
       data: { isActive: false },
     });
 
     return { message: '会话已终止' };
+  }
+
+  /**
+   * 签发指定用户的令牌（用于 2FA 验证通过后）
+   */
+  async issueTokensForUser(userId: string, deviceId?: string, ipAddress?: string, userAgent?: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new BadRequestException('用户不存在');
+
+    const sessionId = randomUUID();
+    const { token: accessToken, expiresIn } = await this.jwtTokenService.generateAccessToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
+    const { token: refreshToken } = await this.jwtTokenService.generateRefreshToken(user.id, deviceId);
+
+    await this.prisma.session.create({
+      data: {
+        userId: user.id,
+        sessionId,
+        deviceId: deviceId || null,
+        deviceName: userAgent || null,
+        ipAddress: ipAddress || 'unknown',
+        userAgent: userAgent || 'unknown',
+        isActive: true,
+        lastActivity: new Date(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        fullName: user.fullName,
+        role: user.role,
+        avatar: user.avatar,
+      },
+      accessToken,
+      refreshToken,
+      sessionId,
+      expiresIn,
+    };
+  }
+
+  /**
+   * 2FA: 生成 secret 与 otpauth URL（仅返回不落库）
+   */
+  async twoFASetup(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (!user) throw new BadRequestException('用户不存在');
+    return this.totpService.generateSecret(user.email);
+  }
+
+  /**
+   * 2FA: 启用
+   */
+  async enable2FA(userId: string, secret: string, code: string) {
+    if (!this.totpService.verifyCode(secret, code)) {
+      throw new BadRequestException('验证码无效');
+    }
+    const cipher = encryptSecret(secret);
+    await this.prisma.user.update({ where: { id: userId }, data: { twoFactorEnabled: true, twoFactorSecret: cipher } });
+    return { message: '2FA 已启用' };
+  }
+
+  /**
+   * 2FA: 关闭
+   */
+  async disable2FA(userId: string, code: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { twoFactorEnabled: true, twoFactorSecret: true } });
+    if (!user?.twoFactorEnabled || !user.twoFactorSecret) {
+      throw new BadRequestException('尚未启用 2FA');
+    }
+    const secret = decryptSecret(user.twoFactorSecret);
+    if (!this.totpService.verifyCode(secret, code)) {
+      throw new BadRequestException('验证码无效');
+    }
+    await this.prisma.user.update({ where: { id: userId }, data: { twoFactorEnabled: false, twoFactorSecret: null } });
+    return { message: '2FA 已关闭' };
+  }
+
+  /**
+   * 请求密码重置
+   */
+  async forgotPassword(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, email: true } });
+    // 为防止用户枚举，始终返回成功
+    if (user) {
+      const token = randomUUID();
+      await this.prisma.passwordReset.create({
+        data: {
+          userId: user.id,
+          email: user.email,
+          token,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1小时
+        },
+      });
+      // TODO: 发送邮件（此处先记录日志或集成实际邮件服务）
+    }
+    return { message: '如果邮箱存在，我们已发送重置指引' };
+  }
+
+  /**
+   * 重置密码
+   */
+  async resetPassword(token: string, newPassword: string) {
+    const pr = await this.prisma.passwordReset.findUnique({ where: { token } });
+    if (!pr || pr.used || pr.expiresAt < new Date()) {
+      throw new BadRequestException('重置令牌无效或已过期');
+    }
+
+    const hashed = await this.passwordService.hashPassword(newPassword);
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: pr.userId }, data: { password: hashed } }),
+      this.prisma.passwordReset.update({ where: { token }, data: { used: true } }),
+    ]);
+
+    // 撤销该用户所有 Token，强制重新登录
+    await this.jwtTokenService.revokeAllUserTokens(pr.userId, 'password_reset');
+    await this.prisma.session.updateMany({ where: { userId: pr.userId, isActive: true }, data: { isActive: false } });
+
+    return { message: '密码已重置，请使用新密码登录' };
   }
 }

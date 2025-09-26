@@ -8,7 +8,7 @@ import * as bcrypt from 'bcryptjs';
 @Injectable()
 export class PasswordService {
   private readonly SALT_ROUNDS = 10;
-  
+
   // 密码强度规则
   private readonly PASSWORD_RULES = {
     minLength: 8,
@@ -16,7 +16,7 @@ export class PasswordService {
     requireUppercase: true,
     requireLowercase: true,
     requireNumbers: true,
-    requireSpecialChars: false // 可选的特殊字符
+    requireSpecialChars: false, // 可选的特殊字符
   };
 
   /**
@@ -35,8 +35,8 @@ export class PasswordService {
    * @returns 是否匹配
    */
   async verifyPassword(
-    plainPassword: string, 
-    hashedPassword: string
+    plainPassword: string,
+    hashedPassword: string,
   ): Promise<boolean> {
     return await bcrypt.compare(plainPassword, hashedPassword);
   }
@@ -78,7 +78,7 @@ export class PasswordService {
 
     // 检查是否包含特殊字符
     if (
-      this.PASSWORD_RULES.requireSpecialChars && 
+      this.PASSWORD_RULES.requireSpecialChars &&
       !/[!@#$%^&*(),.?":{}|<>]/.test(password)
     ) {
       errors.push('密码必须包含至少一个特殊字符');
@@ -86,17 +86,23 @@ export class PasswordService {
 
     // 检查常见弱密码
     const commonWeakPasswords = [
-      'password', '12345678', 'qwerty', 'abc123', 
-      'password123', 'admin', 'letmein', 'welcome'
+      'password',
+      '12345678',
+      'qwerty',
+      'abc123',
+      'password123',
+      'admin',
+      'letmein',
+      'welcome',
     ];
-    
+
     if (commonWeakPasswords.includes(password.toLowerCase())) {
       errors.push('密码过于简单，请使用更复杂的密码');
     }
 
     return {
       isValid: errors.length === 0,
-      errors
+      errors,
     };
   }
 
@@ -110,19 +116,19 @@ export class PasswordService {
     const lowercase = 'abcdefghijklmnopqrstuvwxyz';
     const numbers = '0123456789';
     const special = '!@#$%^&*()_+-={}[]|:;<>?,.';
-    
+
     let charset = lowercase + uppercase + numbers;
     if (this.PASSWORD_RULES.requireSpecialChars) {
       charset += special;
     }
 
     let password = '';
-    
+
     // 确保至少包含各类字符
     password += uppercase[Math.floor(Math.random() * uppercase.length)];
     password += lowercase[Math.floor(Math.random() * lowercase.length)];
     password += numbers[Math.floor(Math.random() * numbers.length)];
-    
+
     if (this.PASSWORD_RULES.requireSpecialChars) {
       password += special[Math.floor(Math.random() * special.length)];
     }

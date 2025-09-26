@@ -177,7 +177,9 @@ describe('JwtTokenService', () => {
       };
 
       (jwtService.verifyAsync as jest.Mock).mockResolvedValue(payload);
-      (prismaService.tokenBlacklist.findUnique as jest.Mock).mockResolvedValue(null);
+      (prismaService.tokenBlacklist.findUnique as jest.Mock).mockResolvedValue(
+        null,
+      );
 
       const result = await service.validateAccessToken(token);
 
@@ -206,7 +208,9 @@ describe('JwtTokenService', () => {
     it('应该拒绝无效的令牌', async () => {
       const token = 'invalid-token';
 
-      (jwtService.verifyAsync as jest.Mock).mockRejectedValue(new Error('Invalid token'));
+      (jwtService.verifyAsync as jest.Mock).mockRejectedValue(
+        new Error('Invalid token'),
+      );
 
       await expect(service.validateAccessToken(token)).rejects.toThrow(
         UnauthorizedException,
@@ -224,7 +228,9 @@ describe('JwtTokenService', () => {
       };
 
       (jwtService.verifyAsync as jest.Mock).mockResolvedValue(payload);
-      (prismaService.refreshToken.findFirst as jest.Mock).mockResolvedValue(mockRefreshToken);
+      (prismaService.refreshToken.findFirst as jest.Mock).mockResolvedValue(
+        mockRefreshToken,
+      );
       (prismaService.refreshToken.update as jest.Mock).mockResolvedValue({});
       (configService.get as jest.Mock).mockReturnValue(3600);
       (jwtService.signAsync as jest.Mock).mockResolvedValue('new-access-token');
@@ -257,9 +263,13 @@ describe('JwtTokenService', () => {
       };
 
       (jwtService.verifyAsync as jest.Mock).mockResolvedValue(payload);
-      (prismaService.refreshToken.findFirst as jest.Mock).mockResolvedValue(expiringToken);
+      (prismaService.refreshToken.findFirst as jest.Mock).mockResolvedValue(
+        expiringToken,
+      );
       (prismaService.refreshToken.update as jest.Mock).mockResolvedValue({});
-      (configService.get as jest.Mock).mockReturnValueOnce(3600).mockReturnValueOnce(604800);
+      (configService.get as jest.Mock)
+        .mockReturnValueOnce(3600)
+        .mockReturnValueOnce(604800);
       (jwtService.signAsync as jest.Mock)
         .mockResolvedValueOnce('new-access-token')
         .mockResolvedValueOnce('new-refresh-token');
@@ -272,7 +282,9 @@ describe('JwtTokenService', () => {
     it('应该拒绝无效的刷新令牌', async () => {
       const refreshToken = 'invalid-refresh-token';
 
-      (jwtService.verifyAsync as jest.Mock).mockRejectedValue(new Error('Invalid token'));
+      (jwtService.verifyAsync as jest.Mock).mockRejectedValue(
+        new Error('Invalid token'),
+      );
 
       await expect(service.refreshAccessToken(refreshToken)).rejects.toThrow(
         UnauthorizedException,
@@ -332,7 +344,9 @@ describe('JwtTokenService', () => {
 
       (jwtService.verifyAsync as jest.Mock).mockResolvedValue(payload);
       (prismaService.tokenBlacklist.create as jest.Mock).mockResolvedValue({});
-      (prismaService.refreshToken.updateMany as jest.Mock).mockResolvedValue({});
+      (prismaService.refreshToken.updateMany as jest.Mock).mockResolvedValue(
+        {},
+      );
 
       await service.revokeToken(token, 'logout');
 
@@ -350,7 +364,9 @@ describe('JwtTokenService', () => {
     it('应该处理无效令牌的撤销', async () => {
       const token = 'invalid-token';
 
-      (jwtService.verifyAsync as jest.Mock).mockRejectedValue(new Error('Invalid'));
+      (jwtService.verifyAsync as jest.Mock).mockRejectedValue(
+        new Error('Invalid'),
+      );
       (prismaService.tokenBlacklist.create as jest.Mock).mockResolvedValue({});
 
       await service.revokeToken(token, 'security');

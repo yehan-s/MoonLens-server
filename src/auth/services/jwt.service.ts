@@ -27,13 +27,16 @@ export class JwtTokenService {
     const jti = randomUUID(); // JWT ID 用于黑名单管理
     const expiresIn = this.configService.get<number>('JWT_EXPIRES_IN', 3600); // 1小时
 
-    const token = await this.jwtService.signAsync({
-      ...payload,
-      jti,
-      type: 'access',
-    }, {
-      expiresIn,
-    });
+    const token = await this.jwtService.signAsync(
+      {
+        ...payload,
+        jti,
+        type: 'access',
+      },
+      {
+        expiresIn,
+      },
+    );
 
     return {
       token,
@@ -46,22 +49,28 @@ export class JwtTokenService {
    */
   async generateRefreshToken(
     userId: string,
-    deviceId?: string
+    deviceId?: string,
   ): Promise<{ token: string; expiresIn: number }> {
     const jti = randomUUID();
-    const expiresIn = this.configService.get<number>('JWT_REFRESH_EXPIRES_IN', 604800); // 7天
-    
-    const token = await this.jwtService.signAsync({
-      userId,
-      jti,
-      type: 'refresh',
-    }, {
-      expiresIn,
-    });
+    const expiresIn = this.configService.get<number>(
+      'JWT_REFRESH_EXPIRES_IN',
+      604800,
+    ); // 7天
+
+    const token = await this.jwtService.signAsync(
+      {
+        userId,
+        jti,
+        type: 'refresh',
+      },
+      {
+        expiresIn,
+      },
+    );
 
     // 存储刷新令牌到数据库
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
-    
+
     await this.prisma.refreshToken.create({
       data: {
         userId,
@@ -78,12 +87,27 @@ export class JwtTokenService {
   }
 
   /**
+   * 生成 2FA 挑战令牌（短有效期）
+   */
+  async generateTwoFactorToken(userId: string): Promise<{ token: string; expiresIn: number }> {
+    const expiresIn = 300; // 5 分钟
+    const token = await this.jwtService.signAsync(
+      {
+        userId,
+        type: '2fa',
+      },
+      { expiresIn },
+    );
+    return { token, expiresIn };
+  }
+
+  /**
    * 验证访问令牌
    */
   async validateAccessToken(token: string): Promise<any> {
     try {
       const payload = await this.jwtService.verifyAsync(token);
-      
+
       // 检查是否在黑名单中
       const isBlacklisted = await this.isTokenBlacklisted(payload.jti);
       if (isBlacklisted) {
@@ -107,7 +131,7 @@ export class JwtTokenService {
     try {
       // 验证刷新令牌
       const payload = await this.jwtService.verifyAsync(refreshToken);
-      
+
       if (payload.type !== 'refresh') {
         throw new UnauthorizedException('无效的刷新令牌');
       }
@@ -147,7 +171,7 @@ export class JwtTokenService {
       // 如果刷新令牌即将过期（少于1天），生成新的刷新令牌
       const oneDayFromNow = new Date(Date.now() + 24 * 60 * 60 * 1000);
       let newRefreshToken: string | undefined;
-      
+
       if (storedToken.expiresAt < oneDayFromNow) {
         // 使旧的刷新令牌失效
         await this.prisma.refreshToken.update({
@@ -179,7 +203,7 @@ export class JwtTokenService {
   async revokeToken(token: string, reason?: string): Promise<void> {
     try {
       const payload = await this.jwtService.verifyAsync(token);
-      
+
       // 计算令牌的原始过期时间
       const expiresAt = new Date(payload.exp * 1000);
 

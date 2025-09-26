@@ -32,6 +32,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('无效的令牌类型');
     }
 
+    // 黑名单检查
+    const blacklisted = await this.prisma.tokenBlacklist.findUnique({
+      where: { jti: payload.jti },
+    });
+    if (blacklisted) {
+      throw new UnauthorizedException('Token 已被撤销');
+    }
+
     // 获取用户信息
     const user = await this.prisma.user.findUnique({
       where: { id: payload.userId },

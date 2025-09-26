@@ -12,7 +12,7 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    // 获取路由所需的角色
+    // 获取路由所需的角色（方法 > 类）
     const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
       ROLES_KEY,
       [context.getHandler(), context.getClass()],
@@ -26,7 +26,20 @@ export class RolesGuard implements CanActivate {
     // 获取请求中的用户信息
     const { user } = context.switchToHttp().getRequest();
 
+    // 未登录或无角色信息，拒绝访问
+    if (!user || !user.role) {
+      return false;
+    }
+
+    // 角色继承层级：高权限包含低权限
+    const roleHierarchy: Record<UserRole, UserRole[]> = {
+      [UserRole.ADMIN]: [UserRole.ADMIN, UserRole.USER, UserRole.GUEST],
+      [UserRole.USER]: [UserRole.USER, UserRole.GUEST],
+      [UserRole.GUEST]: [UserRole.GUEST],
+    };
+
     // 检查用户是否具有所需角色
-    return requiredRoles.includes(user.role);
+    const effectiveRoles = roleHierarchy[user.role as UserRole] ?? [];
+    return requiredRoles.some((r) => effectiveRoles.includes(r));
   }
 }

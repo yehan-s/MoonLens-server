@@ -88,7 +88,7 @@ export class UsersController {
   })
   async getProfile(@CurrentUser() user: any): Promise<UserResponseDto> {
     const userData = await this.usersService.findOne(user.userId);
-    return new UserResponseDto(userData);
+    return new UserResponseDto(userData as any);
   }
 
   /**
@@ -107,7 +107,7 @@ export class UsersController {
     @Body() updateDto: UpdateUserDto,
   ): Promise<UserResponseDto> {
     const updatedUser = await this.usersService.update(user.userId, updateDto);
-    return new UserResponseDto(updatedUser);
+    return new UserResponseDto(updatedUser as any);
   }
 
   /**
@@ -176,7 +176,7 @@ export class UsersController {
       const processedFileName = `processed_${file.filename}`;
       const processedPath = `./uploads/avatars/${processedFileName}`;
       
-      await sharp(file.path)
+      await (await import('sharp')).default(file.path)
         .resize(200, 200, {
           fit: 'cover',
           position: 'center',
