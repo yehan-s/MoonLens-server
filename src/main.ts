@@ -3,33 +3,44 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
+import { applySecurityMiddlewares } from './common/middleware/security.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  
+
   const configService = app.get(ConfigService);
   const port = configService.get('PORT') || 3000;
-  
+
   // 全局验证管道
-  app.useGlobalPipes(new ValidationPipe({
-    transform: true,
-    whitelist: true,
-    forbidNonWhitelisted: true,
-  }));
-  
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  );
+
   // CORS 配置
   app.enableCors({
     origin: true, // 在生产环境中应该设置具体的域名
     credentials: true,
   });
-  
+
+  // 全局安全中间件（Helmet、可选 CSRF）
+  applySecurityMiddlewares(app);
+
   // API 前缀
   app.setGlobalPrefix('api');
-  
+
   // Swagger 文档配置
+  const contactName = configService.get<string>('CONTACT_NAME', 'MoonLens Team');
+  const contactUrl = configService.get<string>('CONTACT_URL', 'https://moonlens.com');
+  const contactEmail = configService.get<string>('CONTACT_EMAIL', 'support@moonlens.com');
+
   const config = new DocumentBuilder()
     .setTitle('MoonLens API')
-    .setDescription(`
+    .setDescription(
+      `
       <h2>GitLab AI 代码审查平台 RESTful API</h2>
       <p>MoonLens 是一个基于 GitLab 的智能代码审查平台，利用 AI 技术提供自动化代码审查服务。</p>
       <h3>主要功能：</h3>
@@ -44,9 +55,10 @@ async function bootstrap() {
       <h3>认证方式：</h3>
       <p>所有需要认证的接口都需要在请求头中包含 Bearer Token：</p>
       <code>Authorization: Bearer YOUR_JWT_TOKEN</code>
-    `)
+    `,
+    )
     .setVersion('1.0.0')
-    .setContact('MoonLens Team', 'https://moonlens.com', 'support@moonlens.com')
+    .setContact(contactName, contactUrl, contactEmail)
     .setLicense('MIT', 'https://opensource.org/licenses/MIT')
     .addBearerAuth(
       {
@@ -68,25 +80,25 @@ async function bootstrap() {
     .addServer('http://localhost:3000', '本地开发环境')
     .addServer('https://api.moonlens.com', '生产环境')
     .build();
-    
+
   const document = SwaggerModule.createDocument(app, config);
-  
+
   // Swagger UI 自定义配置
   const swaggerCustomOptions = {
     explorer: true,
     swaggerOptions: {
-      persistAuthorization: true,        // 保持授权信息
-      displayRequestDuration: true,      // 显示请求耗时
-      docExpansion: 'none',             // 默认折叠所有接口
-      filter: true,                      // 启用搜索框
-      showExtensions: true,              // 显示扩展信息
-      showCommonExtensions: true,        // 显示通用扩展
-      tryItOutEnabled: true,             // 启用 Try it out
-      displayOperationId: false,         // 不显示 operationId
-      defaultModelsExpandDepth: 1,       // 模型默认展开深度
-      defaultModelExpandDepth: 1,        // 模型默认展开深度
-      tagsSorter: 'alpha',              // 标签按字母排序
-      operationsSorter: 'alpha',        // 操作按字母排序
+      persistAuthorization: true, // 保持授权信息
+      displayRequestDuration: true, // 显示请求耗时
+      docExpansion: 'none', // 默认折叠所有接口
+      filter: true, // 启用搜索框
+      showExtensions: true, // 显示扩展信息
+      showCommonExtensions: true, // 显示通用扩展
+      tryItOutEnabled: true, // 启用 Try it out
+      displayOperationId: false, // 不显示 operationId
+      defaultModelsExpandDepth: 1, // 模型默认展开深度
+      defaultModelExpandDepth: 1, // 模型默认展开深度
+      tagsSorter: 'alpha', // 标签按字母排序
+      operationsSorter: 'alpha', // 操作按字母排序
     },
     customCss: `
       .swagger-ui .topbar { 
@@ -125,22 +137,22 @@ async function bootstrap() {
     customSiteTitle: 'MoonLens API 文档',
     customfavIcon: 'https://moonlens.com/favicon.ico',
   };
-  
+
   SwaggerModule.setup('api-docs', app, document, swaggerCustomOptions);
-  
+
   // 提供 JSON 格式的文档
   app.getHttpAdapter().get('/api-docs-json', (req, res) => {
     res.json(document);
   });
-  
+
   // 提供 YAML 格式的文档（可选）
   app.getHttpAdapter().get('/api-docs-yaml', (req, res) => {
     res.type('text/yaml');
     res.send(JSON.stringify(document)); // 实际应该转换为 YAML
   });
-  
+
   await app.listen(port);
-  
+
   console.log(`
   ╔═══════════════════════════════════════════════════════════════╗
   ║                                                               ║

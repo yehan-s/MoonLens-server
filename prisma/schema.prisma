@@ -38,6 +38,8 @@ model User {
   gitlabUserId      String?   @unique
   gitlabAccessToken String?   @db.Text
   gitlabRefreshToken String?  @db.Text // GitLab OAuth 刷新令牌
+  twoFactorEnabled  Boolean   @default(false)
+  twoFactorSecret   String?   @db.Text
   preferences       Json?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -48,6 +50,7 @@ model User {
   loginHistory  LoginHistory[]
   refreshTokens RefreshToken[]
   sessions      Session[]
+  gitlabConnections GitlabConnection[]
 
   @@index([email])
   @@index([gitlabUserId])
@@ -67,6 +70,9 @@ model Project {
   reviewConfig      Json?     // 包含自动审查配置、AI模型选择等
   webhookId         String?
   webhookSecret     String?
+  lastProjectsSyncAt DateTime?
+  lastMembersSyncAt  DateTime?
+  lastBranchesSyncAt DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -74,10 +80,49 @@ model Project {
   ownerId String
   owner   User     @relation(fields: [ownerId], references: [id])
   reviews Review[]
+  members ProjectMember[]
+  branches ProjectBranch[]
 
   @@index([ownerId])
   @@index([gitlabProjectId])
   @@map("projects")
+}
+
+// 项目成员
+model ProjectMember {
+  id         String  @id @default(uuid())
+  projectId  String
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  gitlabUserId String
+  username   String?
+  name       String?
+  email      String?
+  accessLevel Int?
+  state      String?
+  avatarUrl  String?
+  webUrl     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([projectId, gitlabUserId])
+  @@index([projectId])
+  @@map("project_members")
+}
+
+// 项目分支
+model ProjectBranch {
+  id         String  @id @default(uuid())
+  projectId  String
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name       String
+  isDefault  Boolean?
+  isProtected Boolean?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("project_branches")
 }
 
 // 审查状态枚举
@@ -117,12 +162,150 @@ model Review {
   project      Project @relation(fields: [projectId], references: [id])
   requestedById String?
   requestedBy  User?   @relation(fields: [requestedById], references: [id])
+  
+  // 新增：分析结果关联
+  analysisResults AnalysisResult[]
 
   @@index([projectId])
   @@index([requestedById])
   @@index([status])
   @@index([createdAt])
   @@map("reviews")
+}
+
+// 分析结果模型（零持久化设计：不存储源代码）
+model AnalysisResult {
+  id              String   @id @default(uuid())
+  projectId       String
+  mergeRequestId  Int?
+  mergeRequestIid Int?
+  sourceBranch    String?
+  targetBranch    String?
+  commitHash      String?
+  
+  // 仅存储指标，不存储代码
+  metrics         Json     // 代码质量指标、复杂度、覆盖率等
+  filesAnalyzed   Int      @default(0)
+  issuesFound     Int      @default(0)
+  
+  // 处理信息
+  processingTime  Int?     // 毫秒
+  workerVersion   String?  // 分析器版本
+  taskId          String?  @unique
+  
+  // 时间戳
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+  
+  // 关联关系
+  reviewId        String?
+  review          Review?  @relation(fields: [reviewId], references: [id])
+  issues          Issue[]
+  
+  @@index([projectId])
+  @@index([mergeRequestIid])
+  @@index([taskId])
+  @@index([createdAt])
+  @@map("analysis_results")
+}
+
+// 问题记录模型（限制代码片段）
+model Issue {
+  id            String         @id @default(uuid())
+  resultId      String
+  result        AnalysisResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  
+  // 基本信息
+  filePath      String         @db.VarChar(500)
+  lineNumber    Int?
+  columnNumber  Int?
+  endLine       Int?
+  endColumn     Int?
+  
+  // 问题详情
+  severity      IssueSeverity
+  type          IssueType
+  rule          String?        // 规则ID或名称
+  message       String         @db.Text
+  
+  // 严格限制代码片段长度（最多500字符，且过滤敏感信息）
+  codeSnippet   String?        @db.VarChar(500)
+  
+  // AI 建议（不含代码）
+  suggestion    String         @db.Text
+  fixExample    String?        @db.Text // 修复示例（伪代码）
+  
+  // 元数据
+  confidence    Float?         // AI 置信度 0-1
+  isAutoFixable Boolean        @default(false)
+  tags          Json?          // 标签数组
+  
+  createdAt     DateTime       @default(now())
+  
+  @@index([resultId])
+  @@index([severity])
+  @@index([type])
+  @@index([filePath])
+  @@map("issues")
+}
+
+// 问题严重程度枚举
+enum IssueSeverity {
+  CRITICAL  // 严重问题，必须修复
+  HIGH      // 高优先级问题
+  MEDIUM    // 中等优先级
+  LOW       // 低优先级
+  INFO      // 信息提示
+}
+
+// 问题类型枚举
+enum IssueType {
+  SECURITY        // 安全漏洞
+  PERFORMANCE     // 性能问题
+  BUG             // 潜在错误
+  CODE_SMELL      // 代码异味
+  STYLE           // 代码风格
+  DOCUMENTATION   // 文档问题
+  DEPENDENCY      // 依赖问题
+  COMPLEXITY      // 复杂度过高
+  DUPLICATION     // 代码重复
+  ACCESSIBILITY   // 可访问性问题
+  BEST_PRACTICE   // 最佳实践违规
+}
+
+// 代码质量趋势模型
+model QualityTrend {
+  id            String   @id @default(uuid())
+  projectId     String
+  
+  // 时间维度
+  date          DateTime @db.Date
+  week          Int?     // 年的第几周
+  month         Int?     // 月份
+  year          Int?     // 年份
+  
+  // 聚合指标
+  totalAnalyses Int      @default(0)
+  avgIssues     Float    @default(0)
+  avgCritical   Float    @default(0)
+  avgHigh       Float    @default(0)
+  avgMedium     Float    @default(0)
+  avgLow        Float    @default(0)
+  
+  // 代码质量分数（0-100）
+  qualityScore  Float?
+  
+  // 改进指标
+  issuesFixed   Int      @default(0)
+  issuesAdded   Int      @default(0)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@unique([projectId, date])
+  @@index([projectId])
+  @@index([date])
+  @@map("quality_trends")
 }
 
 // Webhook 事件记录
@@ -282,4 +465,37 @@ model EmailVerification {
   @@index([email])
   @@index([expiresAt])
   @@map("email_verifications")
+}
+
+// GitLab 认证类型枚举
+enum GitlabAuthType {
+  PAT    // Personal Access Token
+  OAUTH  // OAuth Token
+}
+
+// GitLab 连接配置
+model GitlabConnection {
+  id            String         @id @default(uuid())
+  userId        String?        // 关联所有者（可选，全局连接留空）
+  owner         User?          @relation(fields: [userId], references: [id])
+  name          String         // 显示名称
+  host          String         // GitLab Base URL（如 https://gitlab.com）
+  authType      GitlabAuthType // PAT / OAUTH
+  tokenCipher   String         @db.LongText // 加密后的密文（包含 iv/tag/ct）
+  tokenExpiresAt DateTime?     // 令牌过期时间（OAuth 可用）
+  oauthRefreshCipher String?   @db.LongText // OAuth 刷新令牌（加密）
+  lastRefreshAt  DateTime?
+  isActive      Boolean        @default(true)
+  usageCount    Int            @default(0)
+  lastUsedAt    DateTime?
+  lastTestedAt  DateTime?
+  lastError     String?        @db.Text
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([host])
+  @@index([isActive])
+  @@index([authType])
+  @@map("gitlab_connections")
 }
