@@ -24,31 +24,36 @@ export class GitlabHealthCheckService {
    * 检测指定连接的连通性
    */
   async checkConnection(connectionId: string) {
-    const conn = await this.prisma.gitlabConnection.findUnique({ where: { id: connectionId } });
-    if (!conn) {
-      return { ok: false, reason: 'connection_not_found' };
-    }
-    if (!conn.isActive) {
-      return { ok: false, reason: 'connection_inactive' };
-    }
-
-    const token = decryptSecret(conn.tokenCipher);
-    const authType = conn.authType as any as 'PAT' | 'OAUTH';
-    const host = conn.host;
-    const access = await this.tokenLife.maybeRefresh(conn.id, host, token, authType);
-    this.api.configure({ host, token: access, authType, refresher: async () => this.tokenLife.refreshOAuth(conn.id, host) });
-
     try {
-      const ok = await this.api.ping();
-      return {
-        ok,
-        host,
-        authType,
-        tokenExpiresAt: conn.tokenExpiresAt ?? undefined,
-        lastRefreshAt: conn.lastRefreshAt ?? undefined,
-      };
-    } catch (e) {
-      return { ok: false, reason: 'api_unreachable', error: String(e) };
+      const conn = await this.prisma.gitlabConnection.findUnique({ where: { id: connectionId } });
+      if (!conn) {
+        return { ok: false, reason: 'connection_not_found' };
+      }
+      if (!conn.isActive) {
+        return { ok: false, reason: 'connection_inactive' };
+      }
+
+      const token = decryptSecret(conn.tokenCipher);
+      const authType = conn.authType as any as 'PAT' | 'OAUTH';
+      const host = conn.host;
+      const access = await this.tokenLife.maybeRefresh(conn.id, host, token, authType);
+      this.api.configure({ host, token: access, authType, refresher: async () => this.tokenLife.refreshOAuth(conn.id, host) });
+
+      try {
+        const ok = await this.api.ping();
+        return {
+          ok,
+          host,
+          authType,
+          tokenExpiresAt: conn.tokenExpiresAt ?? undefined,
+          lastRefreshAt: conn.lastRefreshAt ?? undefined,
+        };
+      } catch (e) {
+        return { ok: false, reason: 'api_unreachable', error: String(e) };
+      }
+    } catch (error) {
+      // 处理解密错误或其他异常
+      return { ok: false, reason: 'connection_error', error: String(error) };
     }
   }
 

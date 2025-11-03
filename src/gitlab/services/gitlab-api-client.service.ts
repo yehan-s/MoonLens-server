@@ -23,8 +23,15 @@ export class GitlabApiClientService {
     private readonly breaker: FailureRecoveryService,
     private readonly optimizer: ApiOptimizationService,
   ) {
-    this.host = this.config.get<string>('GITLAB_BASE_URL', 'https://gitlab.com');
+    this.host = this.config.get<string>('GITLAB_BASE_URL') || 'https://gitlab.com';
+    this.token = this.config.get<string>('GITLAB_ACCESS_TOKEN');
     this.breakerKey = `gitlab:${this.host}`;
+    console.log('[DEBUG] GitLab API Client initialized:', {
+      host: this.host,
+      tokenExists: !!this.token,
+      tokenLength: this.token?.length,
+      tokenPrefix: this.token?.substring(0, 8)
+    });
   }
 
   configure(opts: { host?: string; token?: string; authType?: 'PAT' | 'OAUTH'; refresher?: () => Promise<string> }) {
@@ -37,18 +44,38 @@ export class GitlabApiClientService {
 
   private getAuthHeaders() {
     if (!this.token) return {};
-    // GitLab 支持 Private-Token 或 OAuth Token（Authorization: Bearer）
-    const isJwtLike = this.token.split('.').length === 3;
-    return isJwtLike
-      ? { Authorization: `Bearer ${this.token}` }
-      : { 'Private-Token': this.token };
+    // 优先使用显式 authType
+    if (this.authType === 'OAUTH') return { Authorization: `Bearer ${this.token}` } as any
+    if (this.authType === 'PAT') return { 'Private-Token': this.token } as any
+    // 启发式：GitLab PAT 通常以 glpat- 开头
+    if (this.token.startsWith('glpat-')) return { 'Private-Token': this.token } as any
+    // 默认按 PAT 处理（更广泛兼容）
+    return { 'Private-Token': this.token } as any
   }
 
-  private async doFetch<T>(url: string, init: RequestInit & { retry?: RetryOptions; timeoutMs?: number } = {}): Promise<T> {
+  private getAuthHeadersWithOverride(overrideToken?: string, type?: 'BEARER' | 'PRIVATE') {
+    const token = overrideToken || this.token;
+    console.log('[DEBUG] getAuthHeadersWithOverride:', {
+      overrideToken: overrideToken ? `${overrideToken.substring(0, 8)}...` : 'undefined',
+      thisToken: this.token ? `${this.token.substring(0, 8)}...` : 'undefined',
+      finalToken: token ? `${token.substring(0, 8)}...` : 'undefined',
+      tokenExists: !!token
+    });
+    if (!token) return {};
+    // GitLab 支持 Private-Token 或 OAuth Token（Authorization: Bearer）
+    if (type === 'BEARER') return { Authorization: `Bearer ${token}` } as any
+    if (type === 'PRIVATE') return { 'Private-Token': token } as any
+    // 启发式：优先识别 PAT
+    if (token.startsWith('glpat-')) return { 'Private-Token': token } as any
+    // 默认按 PAT 处理（后续必要时可扩展更多判定）
+    return { 'Private-Token': token } as any
+  }
+
+  private async doFetch<T>(url: string, init: RequestInit & { retry?: RetryOptions; timeoutMs?: number; _overrideToken?: string; _overrideTokenAuth?: 'BEARER' | 'PRIVATE' } = {}): Promise<T> {
     const key = `${((init as any)?.method || 'GET').toString().toUpperCase()}:${url}`;
     const existing = this.inflight.get(key) as Promise<T> | undefined;
     if (existing) return existing;
-    const { retry, ...rest } = init as any;
+    const { retry, _overrideToken, _overrideTokenAuth, ...rest } = init as any;
     const retries = retry?.retries ?? 3;
     const base = retry?.baseDelayMs ?? 300;
 
@@ -71,7 +98,7 @@ export class GitlabApiClientService {
           headers: {
             'Content-Type': 'application/json',
             ...(rest.headers || {}),
-            ...this.getAuthHeaders(),
+            ...(this.getAuthHeadersWithOverride(_overrideToken, _overrideTokenAuth)),
           },
           signal: controller.signal,
         } as any);
@@ -205,6 +232,27 @@ export class GitlabApiClientService {
   }
 
   // Merge Requests
+  async listGroups(params: { search?: string; per_page?: number; page?: number; membership?: boolean } = {}): Promise<any[]> {
+    const qs = new URLSearchParams();
+    if (params.search) qs.set('search', params.search);
+    if (params.per_page) qs.set('per_page', String(params.per_page));
+    if (params.page) qs.set('page', String(params.page));
+    if (params.membership !== false) qs.set('membership', 'true');
+    const api = `${this.host}/api/v4/groups?${qs.toString()}`;
+    return this.doFetch<any[]>(api, { retry: { retries: 2, baseDelayMs: 400 } } as any);
+  }
+  async listGroupMergeRequests(
+    groupId: number | string,
+    params: { state?: 'opened' | 'merged' | 'closed'; per_page?: number; page?: number; include_subgroups?: boolean } = {},
+  ): Promise<any[]> {
+    const qs = new URLSearchParams()
+    if (params.state) qs.set('state', params.state)
+    if (params.per_page) qs.set('per_page', String(params.per_page))
+    if (params.page) qs.set('page', String(params.page))
+    if (params.include_subgroups !== false) qs.set('include_subgroups', 'true')
+    const api = `${this.host}/api/v4/groups/${encodeURIComponent(String(groupId))}/merge_requests?${qs.toString()}`
+    return this.doFetch<any[]>(api, { retry: { retries: 2, baseDelayMs: 400 } } as any)
+  }
   async listMergeRequests(
     projectId: number | string,
     params: { state?: 'opened' | 'merged' | 'closed'; per_page?: number; page?: number } = {},
@@ -233,6 +281,54 @@ export class GitlabApiClientService {
     return res?.changes || []
   }
 
+  async listMergeRequestCommits(projectId: number | string, mergeRequestIid: number | string): Promise<any[]> {
+    const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(
+      String(mergeRequestIid),
+    )}/commits`
+    const res = await this.doFetch<any[]>(api, { retry: { retries: 2, baseDelayMs: 400 } } as any)
+    return res || []
+  }
+
+  /**
+   * 获取 MR 审批状态（GitLab Approvals）
+   */
+  async getMergeRequestApprovals(projectId: number | string, mrIid: number | string): Promise<any> {
+    const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(String(mrIid))}/approvals`;
+    return this.doFetch<any>(api, { retry: { retries: 2, baseDelayMs: 400 } } as any);
+  }
+
+  /**
+   * 执行批准 MR
+   */
+  async approveMergeRequest(projectId: number | string, mrIid: number | string): Promise<any> {
+    const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(String(mrIid))}/approve`;
+    return this.doFetch<any>(api, { method: 'POST', body: JSON.stringify({}), retry: { retries: 2, baseDelayMs: 400 } } as any);
+  }
+
+  /**
+   * 取消批准 MR
+   */
+  async unapproveMergeRequest(projectId: number | string, mrIid: number | string): Promise<any> {
+    const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(String(mrIid))}/unapprove`;
+    return this.doFetch<any>(api, { method: 'POST', body: JSON.stringify({}), retry: { retries: 2, baseDelayMs: 400 } } as any);
+  }
+
+  // 兼容旧方法名
+  async createMergeRequestNote(projectId: number | string, mrIid: number | string, note: { body: string; position?: any }) {
+    return this.addMrNote(projectId, mrIid, { body: note.body, position: note.position })
+  }
+
+  // 创建讨论（支持行内评论）
+  async createMergeRequestDiscussion(
+    projectId: number | string,
+    mrIid: number | string,
+    payload: { body: string; position?: any },
+    userToken?: string,
+    authType?: 'BEARER' | 'PRIVATE',
+  ) {
+    return this.addMrDiscussion(projectId, mrIid, payload, userToken, authType)
+  }
+
   // Repository tree & file
   async getRepositoryTree(
     projectId: number | string,
@@ -254,10 +350,21 @@ export class GitlabApiClientService {
     return this.doFetch<string>(api, { retry: { retries: 1, baseDelayMs: 300 } } as any)
   }
 
+  // Create branch
+  async createBranch(projectId: number | string, branch: string, ref: string): Promise<any> {
+    const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/repository/branches?branch=${encodeURIComponent(branch)}&ref=${encodeURIComponent(ref)}`
+    return this.doFetch<any>(api, { method: 'POST', retry: { retries: 1, baseDelayMs: 300 } } as any)
+  }
+
   // MR notes & discussions
   async listMrDiscussions(projectId: number | string, mrIid: number | string): Promise<any[]> {
     const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(String(mrIid))}/discussions`;
     return this.doFetch<any[]>(api, { retry: { retries: 2, baseDelayMs: 400 } } as any);
+  }
+
+  async listMrNotes(projectId: number | string, mrIid: number | string, userToken?: string, authType?: 'BEARER' | 'PRIVATE'): Promise<any[]> {
+    const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(String(mrIid))}/notes`;
+    return this.doFetch<any[]>(api, { retry: { retries: 2, baseDelayMs: 400 }, _overrideToken: userToken, _overrideTokenAuth: authType } as any);
   }
 
   async addMrNote(projectId: number | string, mrIid: number | string, body: { body: string; position?: any }): Promise<any> {
@@ -265,9 +372,30 @@ export class GitlabApiClientService {
     return this.doFetch<any>(api, { method: 'POST', body: JSON.stringify(body), retry: { retries: 2, baseDelayMs: 400 } } as any);
   }
 
+  async addMrDiscussion(
+    projectId: number | string,
+    mrIid: number | string,
+    body: { body: string; position?: any },
+    userToken?: string,
+    authType?: 'BEARER' | 'PRIVATE',
+  ): Promise<any> {
+    const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(String(mrIid))}/discussions`;
+    return this.doFetch<any>(api, { method: 'POST', body: JSON.stringify(body), retry: { retries: 2, baseDelayMs: 400 }, _overrideToken: userToken, _overrideTokenAuth: authType } as any);
+  }
+
   async replyMrDiscussion(projectId: number | string, mrIid: number | string, discussionId: string, body: { body: string }): Promise<any> {
     const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(String(mrIid))}/discussions/${encodeURIComponent(discussionId)}/notes`;
     return this.doFetch<any>(api, { method: 'POST', body: JSON.stringify(body), retry: { retries: 2, baseDelayMs: 400 } } as any);
+  }
+
+  async deleteMrNote(projectId: number | string, mrIid: number | string, noteId: string | number, userToken?: string, authType?: 'BEARER' | 'PRIVATE'): Promise<void> {
+    const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(String(mrIid))}/notes/${encodeURIComponent(String(noteId))}`;
+    await this.doFetch<any>(api, { method: 'DELETE', retry: { retries: 1, baseDelayMs: 300 }, _overrideToken: userToken, _overrideTokenAuth: authType } as any);
+  }
+
+  async deleteDiscussionNote(projectId: number | string, mrIid: number | string, discussionId: string, noteId: string | number, userToken?: string, authType?: 'BEARER' | 'PRIVATE'): Promise<void> {
+    const api = `${this.host}/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests/${encodeURIComponent(String(mrIid))}/discussions/${encodeURIComponent(discussionId)}/notes/${encodeURIComponent(String(noteId))}`;
+    await this.doFetch<any>(api, { method: 'DELETE', retry: { retries: 1, baseDelayMs: 300 }, _overrideToken: userToken, _overrideTokenAuth: authType } as any);
   }
 
   async updateMr(projectId: number | string, mrIid: number | string, body: any): Promise<any> {

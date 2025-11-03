@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
+import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
 import { PrismaModule } from '../prisma/prisma.module';
 import { GitlabController } from './gitlab.controller';
@@ -25,11 +27,17 @@ import { GitlabEventProcessor } from './queues/gitlab-event.queue';
 import { GitlabCacheService } from './cache/gitlab.cache';
 import { ApiOptimizationService } from './services/api-optimization.service';
 import { MrDiscussionService } from './services/mr-discussion.service';
+import { GitlabEventScheduler } from './schedulers/gitlab-event.scheduler';
 import { ReviewSyncService } from './services/review-sync.service';
 
 @Module({
   imports: [
     PrismaModule,
+    ConfigModule,
+    HttpModule.register({
+      timeout: 30000,
+      maxRedirects: 5,
+    }),
     BullModule.registerQueue({ name: 'gitlab-events' }),
   ],
   controllers: [GitlabController, GitlabConnectionController, ProjectImportController, GitlabWebhookController, GitlabHealthController, WebhookManagementController],
@@ -51,10 +59,12 @@ import { ReviewSyncService } from './services/review-sync.service';
     ProjectConfigurationService,
     WebhookManagementService,
     GitlabEventProcessor,
+    GitlabEventScheduler,
     GitlabCacheService,
     ApiOptimizationService,
   ],
   exports: [
+    GitlabService,
     GitlabApiClientService,
     GitlabTokenLifecycleService,
     ProjectSyncService,

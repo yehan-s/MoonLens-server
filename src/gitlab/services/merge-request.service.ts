@@ -20,4 +20,9 @@ export class MergeRequestService {
     const key = this.cache.keyFor('project', projectId, `mr:diffs:${mergeRequestIid}`)
     return this.cache.wrap(key, 30, () => this.api.listMergeRequestDiffs(projectId, mergeRequestIid))
   }
+
+  async commits(projectId: string | number, mergeRequestIid: number | string) {
+    const key = this.cache.keyFor('project', projectId, `mr:commits:${mergeRequestIid}`)
+    return this.cache.wrap(key, 30, () => this.api.listMergeRequestCommits(projectId, mergeRequestIid))
+  }
 }

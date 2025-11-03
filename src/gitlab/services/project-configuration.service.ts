@@ -27,7 +27,13 @@ export class ProjectConfigurationService {
       },
       review: {
         auto: true,
-        aiModel: 'gpt-4',
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        maxComments: 20,
+        dedupe: true,
+        trigger: { labels: ['ai-review'], minChangedLines: 0 },
+        aiModel: 'gpt-4', // 向后兼容旧字段
         rules: [],
       },
       association: {
@@ -124,4 +130,3 @@ export class ProjectConfigurationService {
     this.prisma.project.update({ where: { id: projectId }, data: { reviewConfig: after } }).catch(() => void 0);
   }
 }
-
