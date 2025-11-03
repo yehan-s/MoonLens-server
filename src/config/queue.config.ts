@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 export const getQueueConfig = (configService: ConfigService): BullModuleOptions => {
   return {
     redis: {
-      host: configService.get<string>('REDIS_HOST', 'localhost'),
+      host: configService.get<string>('REDIS_HOST') || '127.0.0.1',
       port: configService.get<number>('REDIS_PORT', 6379),
       password: configService.get<string>('REDIS_PASSWORD'),
       db: configService.get<number>('REDIS_DB', 0),

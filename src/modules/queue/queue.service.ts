@@ -35,6 +35,24 @@ export class QueueService {
   }
 
   /**
+   * 添加 MR 分析任务到队列（使用 analyze-mr 任务名）
+   */
+  async addMRAnalysisTask(data: any, options?: JobOptions): Promise<Job> {
+    try {
+      const job = await this.analysisQueue.add('analyze-mr', data, {
+        ...options,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+      });
+      this.logger.log(`Added MR analysis task ${job.id} to queue`);
+      return job;
+    } catch (error) {
+      this.logger.error(`Failed to add MR analysis task: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * 获取队列状态
    */
   async getQueueStatus(queueName: 'analysis' | 'dead-letter' = 'analysis') {

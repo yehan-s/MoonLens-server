@@ -1,11 +1,16 @@
-import { Module, Global } from '@nestjs/common';
+import { Module, Global, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { QueueService } from './queue.service';
 import { AnalysisProcessor } from './processors/analysis.processor';
+import { QueueController } from './queue.controller';
 import { DeadLetterProcessor } from './processors/dead-letter.processor';
 import { QueueMonitorService } from './queue-monitor.service';
 import { AnalysisWorker } from '../../workers/analysis.worker';
+import { GitlabModule } from '../../gitlab/gitlab.module';
+import { GitHubModule } from '../../github/github.module';
+import { ServicesModule } from '../../services/services.module';
+import { ReviewModule } from '../../review/review.module';
 import {
   getQueueConfig,
   ANALYSIS_QUEUE_CONFIG,
@@ -16,6 +21,10 @@ import {
 @Module({
   imports: [
     ConfigModule,
+    GitlabModule,
+    GitHubModule,
+    ServicesModule,
+    forwardRef(() => ReviewModule),
     // 配置 Bull 模块
     BullModule.forRootAsync({
       imports: [ConfigModule],
@@ -28,6 +37,7 @@ import {
       DEAD_LETTER_QUEUE_CONFIG,
     ),
   ],
+  controllers: [QueueController],
   providers: [
     QueueService,
     AnalysisProcessor,

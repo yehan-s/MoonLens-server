@@ -16,7 +16,7 @@ export class AnalysisProcessor {
   /**
    * 处理分析任务
    */
-  @Process('analyze')
+  @Process({ name: 'analyze', concurrency: 2 })
   async handleAnalysis(job: Job) {
     // 委托给实际的 worker 处理
     return this.analysisWorker.handleAnalysis(job);
@@ -25,7 +25,7 @@ export class AnalysisProcessor {
   /**
    * 处理分析 MR 任务
    */
-  @Process('analyze-mr')
+  @Process({ name: 'analyze-mr', concurrency: 2 })
   async handleAnalyzeMR(job: Job) {
     // 委托给实际的 worker 处理
     return this.analysisWorker.handleAnalyzeMR(job);
