@@ -10,8 +10,8 @@ export class GitlabOAuthStrategy extends PassportStrategy(GitLabStrategy, 'gitla
     super({
       clientID: config.get<string>('GITLAB_OAUTH_CLIENT_ID'),
       clientSecret: config.get<string>('GITLAB_OAUTH_CLIENT_SECRET'),
-      callbackURL: config.get<string>('GITLAB_OAUTH_CALLBACK_URL') || 'http://localhost:3000/api/auth/gitlab/callback',
-      baseURL: config.get<string>('GITLAB_BASE_URL') || 'https://gitlab.com',
+      callbackURL: config.get<string>('GITLAB_REDIRECT_URI'),
+      baseURL: config.get<string>('GITLAB_BASE_URL'),
       scope: ['read_user', 'read_api'],
       // 开启 OAuth2 state 参数，防止 CSRF 攻击
       state: true,

@@ -19,6 +19,7 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
@@ -104,7 +105,12 @@ export class AuthController {
     description: '刷新令牌无效',
   })
   async refreshToken(@Body() refreshTokenDto: RefreshTokenDto) {
-    return await this.authService.refreshToken(refreshTokenDto);
+    // 为前端客户端（MoonLens-client）的 Axios 包装器保持兼容：
+    // 该客户端在 refresh 接口上期望 ApiResponse<T> 结构（即 { data: { accessToken, refreshToken?, expiresIn } }），
+    // 而登录接口返回的则是原始对象（非 ApiResponse）。
+    // 因此，这里对刷新结果进行 data 包装，避免出现前端 response.data 为 undefined 的问题。
+    const result = await this.authService.refreshToken(refreshTokenDto);
+    return { success: true, data: result };
   }
 
   /**
@@ -183,11 +189,40 @@ export class AuthController {
   })
   async getProfile(@CurrentUser() user: any) {
     return {
+      id: user.userId,
       userId: user.userId,
       email: user.email,
       username: user.username,
       role: user.role,
     };
+  }
+
+  /**
+   * 修改密码
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.USER, UserRole.ADMIN)
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '修改密码' })
+  @ApiResponse({
+    status: 200,
+    description: '密码修改成功',
+  })
+  @ApiResponse({
+    status: 400,
+    description: '当前密码不正确或新密码不符合要求',
+  })
+  async changePassword(
+    @CurrentUser() user: any,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    return await this.authService.changePassword(
+      user.userId,
+      changePasswordDto.oldPassword,
+      changePasswordDto.newPassword,
+    );
   }
 
   /**
@@ -242,9 +277,8 @@ export class AuthController {
     return await this.authService.terminateSession(user.userId, sessionId);
   }
 
-  /**
-   * GitLab OAuth 登录入口
-   */
+  // 注释掉旧的 GitLab OAuth 实现，已迁移到 GitLabOAuthController
+  /*
   @Public()
   @Get('gitlab')
   @UseGuards(AuthGuard('gitlab'))
@@ -253,9 +287,6 @@ export class AuthController {
     // 重定向到 GitLab 授权页
   }
 
-  /**
-   * GitLab OAuth 回调
-   */
   @Public()
   @Get('gitlab/callback')
   @UseGuards(AuthGuard('gitlab'))
@@ -271,6 +302,7 @@ export class AuthController {
     
     return res.redirect(redirectUrl);
   }
+  */
 
   // 2FA：生成 secret 与 otpauth url（需已登录）
   @UseGuards(JwtAuthGuard)

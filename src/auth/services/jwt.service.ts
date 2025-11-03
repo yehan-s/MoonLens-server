@@ -25,7 +25,9 @@ export class JwtTokenService {
     role: string;
   }): Promise<{ token: string; expiresIn: number }> {
     const jti = randomUUID(); // JWT ID 用于黑名单管理
-    const expiresIn = this.configService.get<number>('JWT_EXPIRES_IN', 3600); // 1小时
+    // 确保 expiresIn 是数字类型
+    const expiresInValue = this.configService.get<string | number>('JWT_EXPIRES_IN', 3600);
+    const expiresIn = typeof expiresInValue === 'string' ? parseInt(expiresInValue, 10) : expiresInValue;
 
     const token = await this.jwtService.signAsync(
       {
@@ -52,10 +54,9 @@ export class JwtTokenService {
     deviceId?: string,
   ): Promise<{ token: string; expiresIn: number }> {
     const jti = randomUUID();
-    const expiresIn = this.configService.get<number>(
-      'JWT_REFRESH_EXPIRES_IN',
-      604800,
-    ); // 7天
+    // 确保 expiresIn 是数字类型
+    const expiresInValue = this.configService.get<string | number>('JWT_REFRESH_EXPIRES_IN', 604800);
+    const expiresIn = typeof expiresInValue === 'string' ? parseInt(expiresInValue, 10) : expiresInValue;
 
     const token = await this.jwtService.signAsync(
       {

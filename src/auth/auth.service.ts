@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PasswordService } from './services/password.service';
@@ -505,5 +506,60 @@ export class AuthService {
     await this.prisma.session.updateMany({ where: { userId: pr.userId, isActive: true }, data: { isActive: false } });
 
     return { message: '密码已重置，请使用新密码登录' };
+  }
+
+  /**
+   * 修改密码
+   */
+  async changePassword(userId: string, oldPassword: string, newPassword: string) {
+    // 获取用户信息
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { password: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    // 验证旧密码
+    const isOldPasswordValid = await this.passwordService.verifyPassword(
+      oldPassword,
+      user.password,
+    );
+
+    if (!isOldPasswordValid) {
+      throw new BadRequestException('当前密码不正确');
+    }
+
+    // 检查新密码不能与旧密码相同
+    if (oldPassword === newPassword) {
+      throw new BadRequestException('新密码不能与当前密码相同');
+    }
+
+    // 加密新密码
+    const hashedPassword = await this.passwordService.hashPassword(newPassword);
+
+    // 更新密码
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { 
+        password: hashedPassword,
+        updatedAt: new Date(),
+      },
+    });
+
+    // 记录密码修改日志
+    await this.prisma.loginHistory.create({
+      data: {
+        userId,
+        ipAddress: '127.0.0.1',
+        userAgent: 'Password Changed',
+        success: true,
+        createdAt: new Date(),
+      },
+    });
+
+    return { message: '密码修改成功' };
   }
 }
