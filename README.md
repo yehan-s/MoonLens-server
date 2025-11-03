@@ -4,6 +4,12 @@
 
 ---
 
+## 本仓库定位（重要）
+
+本仓库为后端服务（NestJS + Prisma + BullMQ）的单体仓库，负责 API、鉴权、GitLab 集成、审查任务入队与结果回写等。前端位于同级目录 `../MoonLens-client`；AI 分析微服务可按架构综述以独立服务对接（Python/FastAPI）。
+
+---
+
 ## 项目愿景（Product Brief）
 - 目标：让每个团队都能以低成本获得高质量的 MR 审查反馈，缩短反馈闭环，提升代码质量与交付效率。
 - 核心能力：MR 摘要、逐行建议、多供应商 LLM、Webhook 事件驱动、可扩展插件体系。
@@ -64,15 +70,21 @@ docs/
 
 ---
 
+### 本仓库目录要点（后端单仓）
+- `src/`：NestJS 应用源代码（Auth、GitLab、Projects、Review、Analysis 等模块）
+- `prisma/`：Prisma 模型与迁移
+- `docs/`：API 文档（OpenAPI/Swagger/Postman）与使用说明
+- `Dockerfile`、`docker-compose.yml`：容器与本地编排
+- `.spec-workflow/`：Spec 驱动工作流（Requirements/Design/Tasks）
+
 ## 快速开始（Docker Compose）
-- 推荐使用 `infra/compose.yaml` 启动 mysql/redis/backend/ai-service/frontend。
+- 使用仓库根目录的 `docker-compose.yml` 一键启动（MySQL/Redis/Backend/可选 AI Service）：
 ```bash
-cd infra
 docker compose up --build
 ```
 - 本地开发：
-  - Backend：进入 `apps/backend`，配置 `.env`，运行 `npm run start:dev`
-  - AI Service：进入 `apps/ai-service`，配置 `.env`，运行 `uvicorn app:app --reload --port 8081`
+  - Backend：本仓库根目录配置 `.env` 后运行 `npm run start:dev`
+  - AI Service（可选）：独立仓库/服务中配置 `.env`，运行 `uvicorn app:app --reload --port 8081`
   - Swagger：后端启动后访问 `/api-docs`
 
 ---
@@ -107,11 +119,6 @@ TOTP_ISSUER=MoonLens
 TOTP_DIGITS=6
 TOTP_STEP=30
 
-# GitLab OAuth（可选）
-GITLAB_OAUTH_CLIENT_ID=
-GITLAB_OAUTH_CLIENT_SECRET=
-GITLAB_OAUTH_CALLBACK_URL=http://localhost:3000/api/auth/gitlab/callback
- 
 # GitLab OAuth（可选）
 GITLAB_OAUTH_CLIENT_ID=
 GITLAB_OAUTH_CLIENT_SECRET=
@@ -189,3 +196,5 @@ OPENAI_MODEL=gpt-4o-mini
 ---
 
 更多背景、架构与演进路线，请阅读：`Architecture-Overview.md` 与 `.spec-workflow/steering/*`。
+开发与联调约定：`docs/开发与联调约定.md`
+此外，产品定位与市场对标请参考：`docs/产品定位与功能对标.md`。

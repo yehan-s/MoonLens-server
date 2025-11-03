@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/ai-code-review-market-alignment/tasks.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-09-26T06:36:16.938Z",
+      "trigger": "initial",
+      "approvalId": "approval_1758868576925_5re2w6emo",
+      "approvalTitle": "Tasks: ai-code-review-market-alignment"
+    }
+  ]
+}
