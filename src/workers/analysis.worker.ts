@@ -5,6 +5,14 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
+import { ReviewSyncService } from '../gitlab/services/review-sync.service';
+import { AnalysisResultService } from '../services/analysis-result.service';
+import { MetricsService } from '../common/services/metrics.service';
+import { AiAnalysisService } from '../services/ai-analysis.service';
+import { GitlabApiClientService } from '../gitlab/services/gitlab-api-client.service';
+import { AIReviewService } from '../review/services/ai-review.service';
+import { GitHubService } from '../github/github.service';
+import { CommentFormatterService } from '../review/services/comment-formatter.service';
 
 interface AnalysisJobData {
   projectId: string;
@@ -32,13 +40,24 @@ interface AnalysisJobData {
     email: string;
   };
   timestamp: string;
+  platform?: 'gitlab' | 'github';
+  pullNumber?: number;
 }
 
 @Injectable()
 export class AnalysisWorker {
   private readonly logger = new Logger(AnalysisWorker.name);
 
-  constructor(private configService: ConfigService) {}
+  constructor(
+    private configService: ConfigService,
+    private readonly reviewSync: ReviewSyncService,
+    private readonly resultService: AnalysisResultService,
+    private readonly metrics: MetricsService,
+    private readonly aiAnalysis: AiAnalysisService,
+    private readonly gitlabApi: GitlabApiClientService,
+    private readonly aiReviewService: AIReviewService,
+    private readonly githubService: GitHubService,
+  ) {}
 
   /**
    * 处理 MR 分析任务
@@ -66,14 +85,64 @@ export class AnalysisWorker {
         token: await this.getProjectToken(job.data.projectId),
       };
 
-      // 3. 启动 Docker 容器执行分析
-      containerId = await this.runAnalysisContainer(taskData);
-      
-      // 4. 等待容器执行完成
-      const analysisResult = await this.waitForContainer(containerId);
-      
-      // 5. 处理分析结果
-      const processedResult = this.processAnalysisResult(analysisResult);
+      // 3. 执行分析（优先使用内置 LLM 服务；若未配置则回退 Docker Worker）
+      const processedResult = await this.analyzeMergeRequest(job, taskData);
+
+      // 5.1 入库（零持久化：只写结构化结果与统计，不写源码）
+      try {
+        const saved = await this.resultService.createAnalysisResult({
+          projectId: job.data.projectId,
+          mergeRequestIid: job.data.mergeRequestIid,
+          filesAnalyzed: processedResult.filesAnalyzed,
+          issuesFound: processedResult.issuesFound,
+          metrics: processedResult.metrics,
+          processingTime: Date.now() - startTime,
+          taskId,
+        });
+        if (processedResult.issues?.length) {
+          await this.resultService.createIssues(
+            processedResult.issues.map((it: any) => ({
+              resultId: saved.id,
+              filePath: it.file || 'unknown',
+              lineNumber: it.line || null,
+              severity: (it.severity || 'INFO').toString().toUpperCase(),
+              type: it.type || 'BEST_PRACTICE',
+              rule: it.rule || null,
+              message: it.message || '',
+              suggestion: it.suggestion || '',
+              confidence: it.confidence ?? null,
+            })),
+          );
+        }
+      } catch (e) {
+        this.logger.warn(`Save review result failed: ${e?.message}`);
+      }
+
+      // 5.2 发布 CodeRabbit 风格的 AI 审查评论
+      try {
+        // 构建 AIReviewResult 格式
+        const aiReviewResult = this.convertToAIReviewResult(processedResult, job.data);
+        
+        // 根据平台发布评论
+        const platform = job.data.platform || 'gitlab';
+        
+        if (platform === 'github') {
+          // GitHub PR 评论
+          await this.publishGitHubReview(job.data, aiReviewResult);
+        } else {
+          // GitLab MR 评论
+          await this.aiReviewService.publishReviewToMR(
+            String(job.data.projectId),
+            String(job.data.mergeRequestIid),
+            aiReviewResult,
+          );
+        }
+        
+        this.logger.log(`AI 审查评论发布成功: ${platform} #${job.data.mergeRequestIid || job.data.pullNumber}`);
+        try { this.metrics.httpRequestsTotal.inc({ method: 'POST', route: `/${platform}/ai-review`, status_code: '200' }); } catch {}
+      } catch (e) {
+        this.logger.warn(`AI 审查评论发布失败: ${e?.message}`);
+      }
       
       // 6. 报告进度
       await job.progress(100);
@@ -93,6 +162,7 @@ export class AnalysisWorker {
       
     } catch (error) {
       this.logger.error(`Analysis job ${job.id} failed: ${error.message}`, error.stack);
+      try { this.metrics.httpRequestsTotal.inc({ method: 'QUEUE', route: 'analysis', status_code: '500' }); } catch {}
       throw error;
     } finally {
       // 7. 确保清理容器（无论成功或失败）
@@ -228,23 +298,448 @@ export class AnalysisWorker {
    * 处理分析结果
    */
   private processAnalysisResult(result: any): any {
-    // 确保不包含源代码
-    if (result.results && result.results.issues) {
-      result.results.issues = result.results.issues.map((issue: any) => ({
-        ...issue,
-        // 过滤掉任何可能的源代码
-        snippet: undefined,
-        code: undefined,
-        sourceCode: undefined,
-      }));
+    // 确保不包含源代码 + 标准化/去重/上限控制
+    const maxComments = parseInt(process.env.AI_MAX_COMMENTS || '20', 10);
+    const rawIssues: any[] = result?.results?.issues || [];
+
+    // 过滤潜在源码字段，并计算指纹
+    const { fingerprint } = require('../common/utils/fingerprint.util');
+    const cleaned = rawIssues.map((issue: any) => {
+      const safe = {
+        file: issue.file,
+        line: issue.line,
+        column: issue.column,
+        endLine: issue.endLine,
+        endColumn: issue.endColumn,
+        severity: issue.severity,
+        type: issue.type,
+        message: issue.message,
+        suggestion: issue.suggestion,
+        rule: issue.rule,
+        confidence: issue.confidence,
+      } as any;
+      safe.fingerprint = fingerprint(safe.file || '', safe.line, `${safe.type || ''}:${safe.message || ''}:${safe.suggestion || ''}`);
+      return safe;
+    });
+
+    // 去重（按指纹）
+    const seen = new Set<string>();
+    const deduped: any[] = [];
+    for (const it of cleaned) {
+      if (!it.fingerprint) { deduped.push(it); continue; }
+      if (!seen.has(it.fingerprint)) {
+        seen.add(it.fingerprint);
+        deduped.push(it);
+      }
     }
 
+    // 上限裁剪（保持顺序）
+    const limited = deduped.slice(0, Math.max(0, maxComments));
+
     return {
-      filesAnalyzed: result.results?.filesAnalyzed || 0,
-      issuesFound: result.results?.issueCount || 0,
-      issues: result.results?.issues || [],
-      metrics: result.results?.metrics || {},
+      filesAnalyzed: result?.results?.filesAnalyzed || 0,
+      issuesFound: limited.length,
+      issues: limited,
+      metrics: result?.results?.metrics || {},
     };
+  }
+
+  /**
+   * 分析 MR：优先调用 AiAnalysisService；若缺少 AI_API_KEY 则回退 Docker Worker
+   */
+  private async analyzeMergeRequest(job: Job<AnalysisJobData>, taskData: any) {
+    const hasAiKey = !!this.configService.get<string>('AI_API_KEY')
+    if (hasAiKey) {
+      try {
+        const req = await this.buildCodeAnalysisRequest(job, taskData.projectId, taskData.mergeRequestIid)
+        const started = Date.now()
+        const llm = await this.aiAnalysis.analyzeCode(req as any)
+        const took = Date.now() - started
+        const result = {
+          results: {
+            filesAnalyzed: (req.files || []).length,
+            issueCount: (llm.issues || []).length,
+            issues: llm.issues,
+            metrics: llm.metrics || {},
+          }
+        }
+        const processed = this.processAnalysisResult(result)
+        processed.metrics.llm_time_ms = took
+        return processed
+      } catch (e) {
+        this.logger.warn(`LLM 分析失败，回退 Docker Worker：${(e as any)?.message}`)
+      }
+    }
+
+    // 回退：Docker 容器分析
+    let containerId: string | null = null
+    try {
+      containerId = await this.runAnalysisContainer(taskData)
+      const analysisResult = await this.waitForContainer(containerId)
+      return this.processAnalysisResult(analysisResult)
+    } finally {
+      if (containerId) await this.cleanupContainer(containerId).catch(() => {})
+    }
+  }
+
+  /**
+   * 从 GitLab/GitHub 拉取 MR/PR 变更并构建 LLM 请求
+   */
+  private async buildCodeAnalysisRequest(job: Job<AnalysisJobData>, projectId: string, mrIid: number) {
+    const platform = job.data.platform || 'gitlab';
+
+    if (platform === 'github') {
+      // GitHub PR 分支
+      return await this.buildGitHubPRRequest(job.data);
+    } else {
+      // GitLab MR 分支
+      return await this.buildGitLabMRRequest(projectId, mrIid);
+    }
+  }
+
+  /**
+   * 构建 GitHub PR 分析请求
+   */
+  private async buildGitHubPRRequest(jobData: AnalysisJobData) {
+    const { owner, repo, pullNumber } = this.parseGitHubInfo(jobData);
+
+    this.logger.log(`获取GitHub PR文件: ${owner}/${repo}#${pullNumber}`);
+
+    // 获取 PR 文件列表
+    const prFiles = await this.githubService.getPullRequestFiles(owner, repo, pullNumber);
+
+    if (!prFiles || prFiles.length === 0) {
+      this.logger.warn(`GitHub PR #${pullNumber} 没有文件变更`);
+      return {
+        files: [],
+        context: {
+          projectType: 'github-pr',
+          framework: 'unknown',
+          targetBranch: jobData.targetBranch || 'main',
+          sourceBranch: jobData.sourceBranch || 'feature',
+        },
+        rules: [],
+      };
+    }
+
+    // 转换为统一格式
+    const files = prFiles.map((file: any) => {
+      const path = file.filename || 'unknown';
+      const language = this.detectLanguage(path);
+      const changes = file.patch || '';
+      // GitHub API 返回的文件内容（如果有）
+      const content = file.contents_url ? '' : ''; // 暂不获取完整内容
+
+      return { path, language, content, changes };
+    });
+
+    this.logger.log(`获取到 ${files.length} 个变更文件`);
+
+    return {
+      files,
+      context: {
+        projectType: 'github-pr',
+        framework: 'unknown',
+        targetBranch: jobData.targetBranch || 'main',
+        sourceBranch: jobData.sourceBranch || 'feature',
+      },
+      rules: [],
+    };
+  }
+
+  /**
+   * 构建 GitLab MR 分析请求
+   */
+  private async buildGitLabMRRequest(projectId: string, mrIid: number) {
+    // 获取 MR 概览与 diff
+    const mr = await this.gitlabApi.getMergeRequest(projectId, mrIid)
+    const diffs = await this.gitlabApi.listMergeRequestDiffs(projectId, mrIid)
+    const headSha = mr?.diff_refs?.head_sha || mr?.sha || mr?.source_sha
+
+    const files = await Promise.all((diffs || []).map(async (c: any) => {
+      const path = c.new_path || c.newPath || c.old_path || c.oldPath || 'unknown'
+      const language = this.detectLanguage(path)
+      const changes = c.diff || c.patch || ''
+      // 可选：抓取最新文件内容（受权限与体量限制，这里只在小文件时拉取）
+      let content = ''
+      try {
+        if (headSha && path && changes && changes.length < 8000) {
+          content = await this.gitlabApi.getFileRaw(projectId, path, headSha)
+          if (content && content.length > 2000) content = content.slice(0, 2000)
+        }
+      } catch { /* 忽略内容抓取失败 */ }
+      return { path, language, content, changes }
+    }))
+
+    return {
+      files,
+      context: {
+        projectType: 'gitlab-mr',
+        framework: 'unknown',
+        targetBranch: mr?.target_branch || 'main',
+        sourceBranch: mr?.source_branch || 'feature',
+      },
+      rules: [],
+    }
+  }
+
+  /**
+   * 解析 GitHub 仓库信息
+   */
+  private parseGitHubInfo(jobData: AnalysisJobData): { owner: string; repo: string; pullNumber: number } {
+    // 从 projectPath 解析 owner/repo (如 "yehan-s/manage_1")
+    const parts = (jobData.projectPath || '').split('/');
+    const owner = parts[0] || '';
+    const repo = parts[1] || '';
+    const pullNumber = jobData.pullNumber || jobData.mergeRequestIid || 0;
+
+    return { owner, repo, pullNumber };
+  }
+
+  /**
+   * 将处理结果转换为 AIReviewResult 格式
+   */
+  private convertToAIReviewResult(processedResult: any, jobData: AnalysisJobData): any {
+    const issues = processedResult.issues || [];
+    const metrics = processedResult.metrics || {};
+    
+    // 统计严重程度
+    const errorCount = issues.filter((i: any) => i.severity === 'error' || i.severity === 'ERROR').length;
+    const warningCount = issues.filter((i: any) => i.severity === 'warning' || i.severity === 'WARNING').length;
+    const infoCount = issues.length - errorCount - warningCount;
+    
+    // 计算总分（基于问题数量和严重程度）
+    const score = Math.max(100 - (errorCount * 15 + warningCount * 5 + infoCount * 2), 0);
+    
+    // 确定总体严重程度
+    let severity: 'success' | 'warning' | 'error' | 'info' = 'success';
+    if (errorCount > 0) severity = 'error';
+    else if (warningCount > 0) severity = 'warning';
+    else if (infoCount > 0) severity = 'info';
+    
+    // 生成描述
+    const parts: string[] = [];
+    if (errorCount > 0) parts.push(`${errorCount} 个严重问题`);
+    if (warningCount > 0) parts.push(`${warningCount} 个警告`);
+    if (infoCount > 0) parts.push(`${infoCount} 个提示`);
+    
+    const description = parts.length > 0
+      ? `发现 ${parts.join('、')}，建议修复后合并`
+      : '代码质量良好，未发现明显问题';
+    
+    return {
+      summary: {
+        title: `代码审查完成 - 发现 ${issues.length} 个问题`,
+        description,
+        severity,
+      },
+      issues: issues.map((issue: any) => {
+        const after = this.extractAfterFromSuggestion(issue.suggestion || '') || (issue.code || '');
+        const mapped: any = {
+          id: issue.fingerprint || `issue-${Math.random().toString(36).substr(2, 9)}`,
+          type: this.normalizeIssueType(issue.type),
+          severity: this.normalizeSeverity(issue.severity),
+          title: issue.message || '未知问题',
+          description: issue.message || '',
+          file: issue.file || 'unknown',
+          line: issue.line || 1,
+          column: issue.column,
+          suggestion: issue.suggestion || '',
+          code: issue.code,
+        };
+        if (after && typeof after === 'string' && after.trim().length > 0) {
+          mapped.codeExample = { before: '', after };
+        }
+        return mapped;
+      }),
+      score,
+      metrics: {
+        security: metrics.security || 80,
+        performance: metrics.performance || 80,
+        maintainability: metrics.maintainability || 75,
+        reliability: metrics.reliability || 80,
+      },
+      suggestions: this.generateSuggestions(issues),
+    };
+  }
+
+  /**
+   * 从建议文本中提取“可应用”的代码内容（支持 ```code``` 或 `inline`）
+   */
+  private extractAfterFromSuggestion(text: string): string | null {
+    if (!text) return null;
+    // 优先匹配三引号代码块（带或不带语言标识）
+    const block = text.match(/```(?:[a-zA-Z0-9_-]+)?\n([\s\S]*?)```/);
+    if (block && block[1]) return block[1].trim();
+    // 其次匹配单反引号的内联代码
+    const inline = text.match(/`([^`]+)`/);
+    if (inline && inline[1]) return inline[1].trim();
+    // 兜底：从自然语言中提取看起来像代码的一行（常见于 <img .../>、const ... = ... 等）
+    const tag = text.match(/<(?:img|a|div|span|input|button)[^>]*?>\/?/i);
+    if (tag && tag[0]) return tag[0].trim();
+    const assign = text.match(/^[ \t]*[^\s]+\s*=\s*[^;]+;?/m);
+    if (assign && assign[0]) return assign[0].trim();
+    return null;
+  }
+
+  /**
+   * 标准化问题类型
+   */
+  private normalizeIssueType(type: string): 'security' | 'performance' | 'quality' | 'style' | 'bug' {
+    const typeStr = (type || '').toLowerCase();
+    if (typeStr.includes('security') || typeStr.includes('安全')) return 'security';
+    if (typeStr.includes('performance') || typeStr.includes('性能')) return 'performance';
+    if (typeStr.includes('bug') || typeStr.includes('错误')) return 'bug';
+    if (typeStr.includes('style') || typeStr.includes('风格')) return 'style';
+    return 'quality';
+  }
+
+  /**
+   * 标准化严重程度
+   */
+  private normalizeSeverity(severity: string): 'error' | 'warning' | 'info' {
+    const sevStr = (severity || '').toLowerCase();
+    if (sevStr === 'error' || sevStr === 'critical' || sevStr === 'high') return 'error';
+    if (sevStr === 'warning' || sevStr === 'medium') return 'warning';
+    return 'info';
+  }
+
+  /**
+   * 生成建议列表
+   */
+  private generateSuggestions(issues: any[]): string[] {
+    const suggestions: string[] = [];
+    
+    const hasSecurityIssues = issues.some(i => this.normalizeIssueType(i.type) === 'security');
+    const hasPerformanceIssues = issues.some(i => this.normalizeIssueType(i.type) === 'performance');
+    const hasBugs = issues.some(i => this.normalizeIssueType(i.type) === 'bug');
+    
+    if (hasSecurityIssues) {
+      suggestions.push('优先修复安全相关问题，避免潜在漏洞');
+    }
+    
+    if (hasBugs) {
+      suggestions.push('修复已发现的 bug，确保代码正确性');
+    }
+    
+    if (hasPerformanceIssues) {
+      suggestions.push('优化性能相关代码，提升系统响应速度');
+    }
+    
+    if (issues.length === 0) {
+      suggestions.push('代码质量良好，可以考虑添加更多测试');
+    } else {
+      suggestions.push('确保所有变更都有对应的测试覆盖');
+    }
+    
+    suggestions.push('更新相关文档以反映代码变更');
+    
+    return suggestions;
+  }
+
+  /**
+   * 发布 GitHub PR Review
+   */
+  private async publishGitHubReview(jobData: any, reviewResult: any): Promise<void> {
+    const owner = jobData.owner;
+    const repo = jobData.repo;
+    const pullNumber = jobData.pullNumber;
+    let headSha = jobData.headSha;
+    
+    if (!owner || !repo || !pullNumber) {
+      this.logger.warn('GitHub 发布评论缺少必要参数');
+      return;
+    }
+    
+    try {
+      // 使用 CommentFormatterService 的格式化逻辑
+      const formatter = new CommentFormatterService();
+      
+      // 格式化总评
+      const summaryComment = formatter.formatSummaryComment(reviewResult);
+      
+      // 获取 Bot Token
+      const botToken = this.configService.get<string>('GITHUB_BOT_TOKEN') || 
+                       this.configService.get<string>('GITHUB_TOKEN');
+      
+      if (!botToken) {
+        this.logger.warn('GITHUB_BOT_TOKEN 未配置,跳过评论发布');
+        return;
+      }
+      
+      // 发布 Issue Comment (总评)
+      await this.githubService.createIssueComment(
+        owner,
+        repo,
+        pullNumber,
+        summaryComment,
+        botToken,
+      );
+      
+      this.logger.log(`GitHub PR 总评发布成功: ${owner}/${repo}#${pullNumber}`);
+      
+      // 阶段2：发布行内评论（带 suggestion，可一键 Apply）
+      try {
+        // 获取 PR 详情以拿到 headSha
+        if (!headSha) {
+          const pr = await this.githubService.getPullRequest(owner, repo, pullNumber, botToken);
+          headSha = pr?.head?.sha;
+        }
+
+        if (!headSha) {
+          this.logger.warn('获取 headSha 失败，跳过行内评论');
+          return;
+        }
+
+        const order: Record<string, number> = { error: 0, warning: 1, info: 2 };
+        const inlineCandidates = (reviewResult.issues || [])
+          .slice()
+          .sort((a: any, b: any) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9))
+          .slice(0, 30);
+
+        if (inlineCandidates.length === 0) return;
+
+        // 使用已实现的格式化器，确保包含 ```suggestion 代码块
+        const formatter = new CommentFormatterService();
+        const comments = inlineCandidates.map((issue: any) => ({
+          path: issue.file,
+          line: Math.max(1, Number(issue.line) || 1),
+          body: formatter.formatInlineComment(issue),
+        }));
+
+        await this.githubService.createPullRequestReviewWithComments(
+          owner,
+          repo,
+          pullNumber,
+          '🤖 AI Code Review - Detailed Issues',
+          comments,
+          headSha,
+          botToken,
+        );
+        this.logger.log(`GitHub PR 行内评论发布成功: ${comments.length} 条`);
+      } catch (e) {
+        this.logger.warn(`发布 GitHub 行内评论失败: ${e?.message}`);
+      }
+      
+    } catch (error) {
+      this.logger.error(`发布 GitHub Review 失败: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  private detectLanguage(path: string): string {
+    const ext = (path.split('.').pop() || '').toLowerCase()
+    switch (ext) {
+      case 'ts': return 'ts'
+      case 'js': return 'js'
+      case 'vue': return 'vue'
+      case 'py': return 'python'
+      case 'java': return 'java'
+      case 'go': return 'go'
+      case 'cs': return 'csharp'
+      case 'rb': return 'ruby'
+      default: return 'text'
+    }
   }
 
   /**

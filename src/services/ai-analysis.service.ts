@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import * as crypto from 'crypto';
+import { MetricsService } from '../common/services/metrics.service';
+import { AiProviderFactory } from './ai/ai-provider.factory';
 
 interface CodeAnalysisRequest {
   files: Array<{
@@ -55,6 +57,8 @@ export class AiAnalysisService {
   constructor(
     private configService: ConfigService,
     private httpService: HttpService,
+    private metrics: MetricsService,
+    private providerFactory: AiProviderFactory,
   ) {}
 
   /**
@@ -78,12 +82,19 @@ export class AiAnalysisService {
       for (const batch of batches) {
         const batchRequest = { ...request, files: batch };
         const prompt = this.buildAnalysisPrompt(batchRequest);
-        
-        // 调用 AI API
-        const response = await this.callAiApi(prompt);
-        
+        // 根据配置调度 Provider
+        const provider = this.providerFactory.get();
+        const started = Date.now();
+        let content = '';
+        try {
+          content = await provider.generate(prompt, { model: this.configService.get<string>('AI_MODEL') || undefined, temperature: 0.3 });
+          try { this.metrics.aiCallDurationMs.observe({ provider: provider.name, model: this.configService.get<string>('AI_MODEL') || 'unknown', status: 'ok' } as any, Date.now() - started); } catch {}
+        } catch (e: any) {
+          try { this.metrics.aiCallDurationMs.observe({ provider: provider.name, model: this.configService.get<string>('AI_MODEL') || 'unknown', status: 'error' } as any, 0); } catch {}
+          throw e;
+        }
         // 解析响应
-        const parsed = this.parseAiResponse(response);
+        const parsed = this.parseAiResponse({ choices: [{ message: { content } }] });
         allIssues.push(...parsed.issues);
       }
 
@@ -184,10 +195,12 @@ ${file.changes ? '变更内容:\n' + file.changes : '内容:\n' + content}
     const apiKey = this.configService.get<string>('AI_API_KEY');
     const apiUrl = this.configService.get<string>('AI_API_URL', 'https://api.openai.com/v1/chat/completions');
     const model = this.configService.get<string>('AI_MODEL', 'gpt-4');
+    const provider = this.configService.get<string>('AI_PROVIDER', 'openai');
 
     let retries = 0;
     while (retries < this.maxRetries) {
       try {
+        const started = Date.now();
         const response = await firstValueFrom(
           this.httpService.post(
             apiUrl,
@@ -217,10 +230,13 @@ ${file.changes ? '变更内容:\n' + file.changes : '内容:\n' + content}
           ),
         );
 
-        return (response as any).data;
+        const data = (response as any).data;
+        try { this.metrics.aiCallDurationMs.observe({ provider, model, status: 'ok' } as any, Date.now() - started); } catch {}
+        return data;
       } catch (error: any) {
         retries++;
         this.logger.warn(`AI API call failed (attempt ${retries}/${this.maxRetries}):`, error.message);
+        try { this.metrics.aiCallDurationMs.observe({ provider, model, status: 'error' } as any, 0); } catch {}
         
         if (retries >= this.maxRetries) {
           throw new Error(`AI API call failed after ${this.maxRetries} attempts`);
@@ -237,7 +253,7 @@ ${file.changes ? '变更内容:\n' + file.changes : '内容:\n' + content}
    */
   private parseAiResponse(response: any): AnalysisResponse {
     try {
-      const content = response.choices[0].message.content;
+      const content = response?.choices?.[0]?.message?.content || response?.content || '';
       const parsed = typeof content === 'string' ? JSON.parse(content) : content;
       
       // 验证和标准化响应
