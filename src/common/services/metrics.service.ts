@@ -9,6 +9,8 @@ export class MetricsService {
   readonly httpDuration: Histogram;
   readonly httpRequestsTotal: Counter;
   readonly activeSessions: Gauge;
+  readonly aiCallDurationMs: Histogram;
+  readonly reviewWriteComments: Counter;
 
   constructor() {
     if (!defaultMetricsRegistered) {
@@ -32,6 +34,19 @@ export class MetricsService {
     this.activeSessions = new Gauge({
       name: 'active_sessions',
       help: '活跃会话数',
+    });
+
+    this.aiCallDurationMs = new Histogram({
+      name: 'ml_ai_call_duration_ms',
+      help: 'AI 调用耗时（毫秒）',
+      labelNames: ['provider', 'model', 'status'],
+      buckets: [50, 100, 200, 500, 1000, 2000, 5000, 10000],
+    });
+
+    this.reviewWriteComments = new Counter({
+      name: 'ml_review_write_comments_total',
+      help: '写入到 MR 的评论条数',
+      labelNames: ['route'],
     });
   }
 

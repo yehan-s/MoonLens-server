@@ -5,9 +5,12 @@ WORKDIR /app
 
 # 复制 package 文件
 COPY package*.json ./
+COPY prisma ./prisma
 
 # 安装依赖
 RUN npm ci
+# 生成 Prisma Client（编译期需要类型）
+RUN npx prisma generate
 
 # 复制源代码
 COPY . .
@@ -22,9 +25,10 @@ WORKDIR /app
 
 # 复制 package 文件
 COPY package*.json ./
+COPY prisma ./prisma
 
 # 只安装生产依赖
-RUN npm ci --only=production
+RUN npm ci --only=production && npx prisma generate
 
 # 从构建阶段复制构建产物
 COPY --from=builder /app/dist ./dist
@@ -33,4 +37,4 @@ COPY --from=builder /app/dist ./dist
 EXPOSE 3000
 
 # 启动应用
-CMD ["node", "dist/main"]
+CMD ["node", "dist/src/main.js"]

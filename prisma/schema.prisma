@@ -51,6 +51,7 @@ model User {
   refreshTokens RefreshToken[]
   sessions      Session[]
   gitlabConnections GitlabConnection[]
+  platformTokens    PlatformToken[]
 
   @@index([email])
   @@index([gitlabUserId])
@@ -322,7 +323,7 @@ model WebhookEvent {
   @@map("webhook_events")
 }
 
-// AI 模型配置
+// AI 模型配置（系统级）
 model AIConfig {
   id          String   @id @default(uuid())
   name        String   @unique
@@ -337,6 +338,40 @@ model AIConfig {
   updatedAt   DateTime @updatedAt
 
   @@map("ai_configs")
+}
+
+// 用户级AI配置
+model UserAIConfig {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  settings    Json     // 存储加密的配置信息
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("user_ai_configs")
+}
+
+// AI审查报告
+model ReviewReport {
+  id            String   @id @default(uuid())
+  projectId     String
+  mrIid         String
+  userId        String
+  summary       String   @db.Text
+  score         Int
+  issues        Json     // 问题列表
+  suggestions   Json     // 建议列表
+  provider      String   // AI提供商
+  model         String   // 使用的模型
+  reviewedFiles Int      // 审查的文件数
+  totalFiles    Int      // 总文件数
+  duration      Int      // 处理时间（毫秒）
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([mrIid])
+  @@map("review_reports")
 }
 
 // 审查规则模型
@@ -498,4 +533,72 @@ model GitlabConnection {
   @@index([isActive])
   @@index([authType])
   @@map("gitlab_connections")
+}
+
+// ==================== OAuth Platform Tokens ====================
+// 用于存储 OAuth 授权后获得的平台访问令牌
+
+model PlatformToken {
+  id            String   @id @default(uuid())
+  userId        String
+  platform      String   // 'gitlab' | 'github'
+
+  // OAuth token
+  accessToken   String   @db.Text
+  refreshToken  String?  @db.Text
+  expiresAt     DateTime?
+
+  // 平台配置
+  apiUrl        String?  // 私有部署 GitLab 地址
+  authMethod    String   @default("oauth") // 'oauth' | 'pat'
+
+  // 平台用户信息
+  platformUserId   String?
+  platformUsername String?
+  platformEmail    String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@index([userId])
+  @@index([platform])
+  @@map("platform_tokens")
+}
+
+// ==================== AI Review Cache ====================
+// 文件级审查结果缓存，避免重复调用AI API
+
+model FileReviewCache {
+  id          String   @id @default(uuid())
+
+  // 缓存键：文件hash + 规则hash保证唯一性
+  fileHash    String   @db.VarChar(64)  // Git blob SHA-1 (40字符) 或 SHA-256 (64字符)
+  filePath    String   @db.VarChar(255) // 减少长度以适应索引
+  projectId   String   @db.VarChar(100) // 减少长度
+  rulesHash   String   @db.VarChar(32) @default("default") // MD5(规则配置)
+
+  // 缓存数据：AI审查结果
+  reviewData  Json     // { score, issues[], suggestions[], summary }
+
+  // AI提供商信息
+  provider    String   @db.VarChar(50)  // kimi/openai/claude/github
+  model       String   @db.VarChar(100) // 模型名称
+
+  // 缓存统计
+  hitCount    Int      @default(0)      // 缓存命中次数
+  lastHitAt   DateTime @default(now())  // 最后命中时间
+
+  // 时间管理
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime                   // 过期时间（默认24小时后）
+
+  @@unique([fileHash, rulesHash, projectId])
+  @@index([projectId, filePath])
+  @@index([fileHash])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@map("file_review_cache")
 }

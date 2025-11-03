@@ -1,6 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { PrismaService } from './services/prisma.service';
 import { AuditLogService } from './services/audit-log.service';
+import { MetricsService } from './services/metrics.service';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
 
@@ -20,7 +21,7 @@ import * as winston from 'winston';
       ],
     }),
   ],
-  providers: [PrismaService, AuditLogService],
-  exports: [PrismaService, AuditLogService],
+  providers: [PrismaService, AuditLogService, MetricsService],
+  exports: [PrismaService, AuditLogService, MetricsService],
 })
 export class CommonModule {}

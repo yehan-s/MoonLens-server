@@ -34,7 +34,7 @@ async function bootstrap() {
 
   // Swagger 文档配置
   const contactName = configService.get<string>('CONTACT_NAME', 'MoonLens Team');
-  const contactUrl = configService.get<string>('CONTACT_URL', 'https://moonlens.com');
+  const contactUrl = configService.get<string>('CONTACT_URL') || '';
   const contactEmail = configService.get<string>('CONTACT_EMAIL', 'support@moonlens.com');
 
   const config = new DocumentBuilder()
@@ -77,8 +77,7 @@ async function bootstrap() {
     .addTag('gitlab', 'GitLab集成 - OAuth、Webhook')
     .addTag('review', '代码审查 - AI审查、报告')
     .addTag('ai', 'AI服务 - 模型配置、审查策略')
-    .addServer('http://localhost:3000', '本地开发环境')
-    .addServer('https://api.moonlens.com', '生产环境')
+    .addServer(configService.get<string>('API_BASE_URL') || `http://localhost:${port}`, configService.get<string>('NODE_ENV') === 'production' ? '生产环境' : '本地开发环境')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

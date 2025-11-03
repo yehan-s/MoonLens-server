@@ -1,7 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import helmet from 'helmet';
-import * as csurf from 'csurf';
-import * as cookieParser from 'cookie-parser';
+import csurf from 'csurf';
+import cookieParser from 'cookie-parser';
 
 /**
  * 应用全局安全中间件

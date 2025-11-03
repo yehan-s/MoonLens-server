@@ -46,6 +46,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: moonlens-server
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -55,11 +57,15 @@ services:
       DB_USERNAME: moonlens
       DB_PASSWORD: moonlens_password
       DB_DATABASE: moonlens_db
+      # Prisma 连接串（供 PrismaClient 使用）
+      DATABASE_URL: mysql://moonlens:moonlens_password@mysql:3306/moonlens_db
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # GitLab 基础地址（来自你提供的配置）
+      GITLAB_BASE_URL: http://gitlab.sunyur.com
     ports:
-      - "3000:3000"
-      - "3001:3001"  # WebSocket 端口
+      - "3002:3000"
+      - "3003:3001"  # WebSocket 端口
     depends_on:
       mysql:
         condition: service_healthy

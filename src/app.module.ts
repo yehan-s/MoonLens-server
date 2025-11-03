@@ -11,6 +11,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { GitlabModule } from './gitlab/gitlab.module';
+import { GitHubModule } from './github/github.module';
 import { AiModule } from './ai/ai.module';
 import { ReviewModule } from './review/review.module';
 import { ProjectsModule } from './projects/projects.module';
@@ -21,7 +22,6 @@ import { QueueModule } from './modules/queue/queue.module';
 import { ServicesModule } from './services/services.module';
 import { AnalysisModule } from './analysis/analysis.module';
 import { HealthController } from './health/health.controller';
-import { MetricsService } from './common/services/metrics.service';
 
 // 注意：为避免 TS 严格模式下 parseInt 接受 undefined 报错，提供默认值
 const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? '6379', 10);
@@ -66,6 +66,7 @@ const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? '6379', 10);
     AuthModule,
     UsersModule,
     GitlabModule,
+    GitHubModule,
     AiModule,
     ReviewModule,
     ProjectsModule,
@@ -77,7 +78,6 @@ const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? '6379', 10);
   controllers: [AppController, HealthController],
   providers: [
     AppService,
-    MetricsService,
     {
       provide: APP_GUARD,
       useClass: RateLimitGuard,
